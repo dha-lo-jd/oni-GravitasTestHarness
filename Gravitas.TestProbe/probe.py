@@ -3,7 +3,8 @@
     python probe.py run            build -> fix mods.json -> launch -> wait ready -> check version -> /quit
     python probe.py run --save "name.sav"   also auto-load a save from saves/ and wait until it is playing
     python probe.py run --save X.sav --steps '[["POST","/time/advance",{"ticks":50}],["POST","/query",{"path":"GameClock.Instance.GetCycle"}]]'
-    python probe.py run --keep     same, but leave the game running (for manual poking)
+    python probe.py run --project ../../MyMod --tests   test another mod: its harness.json gives build/required_mods/save
+    python probe.py run --keep    same, but leave the game running (for manual poking)
     python probe.py fix-mods       only check/repair mods.json
     python probe.py http GET /ping call an endpoint of an already running game
 
@@ -35,7 +36,7 @@ class ProbeError(Exception):
         self.stage, self.message = stage, message
 
 
-def load_config():
+def load_config(project=None):
     cfg = {"port": 18080, "required_mods": [], "build": [], "launch_args": [],
            "ready_timeout_s": 240, "quit_timeout_s": 60, "launch_timeout_s": 90, "load_timeout_s": 240, "step_timeout_s": 300, "save": None, "player_log": None,
            "steam_exe": "C:/Program Files (x86)/Steam/steam.exe", "app_id": 457140}
@@ -46,6 +47,33 @@ def load_config():
     for key in ("game_dir", "mods_dir"):
         if not cfg.get(key):
             raise ProbeError("config", f"'{key}' is required in probe.config.json")
+    cfg["runs_dir"] = HERE / "runs"
+    cfg["saves_dirs"] = [REPO / "saves"]
+    cfg["project_build"] = []
+    cfg["project_dir"] = None
+    if project:
+        # Project file of the mod under test (conventionally <mod repo>/harness.json). Keys: build (commands run in
+        # its folder), required_mods, save, saves_dir, port, build_harness (default true), runs_dir.
+        ppath = Path(project).resolve()
+        if ppath.is_dir():
+            ppath = ppath / "harness.json"
+        if not ppath.exists():
+            raise ProbeError("config", f"project file not found: {ppath}")
+        try:
+            proj = json.loads(ppath.read_text(encoding="utf-8"))
+        except ValueError as e:
+            raise ProbeError("config", f"{ppath} is not valid JSON: {e}")
+        pdir = ppath.parent
+        cfg["project_dir"] = pdir
+        cfg["project_build"] = proj.get("build", [])
+        if proj.get("build_harness", True) is False:
+            cfg["build"] = []
+        for key in ("required_mods", "save", "port"):
+            if key in proj:
+                cfg[key] = proj[key]
+        cfg["runs_dir"] = (pdir / proj["runs_dir"]) if proj.get("runs_dir") else pdir / ".harness-runs"
+        if proj.get("saves_dir"):
+            cfg["saves_dirs"].insert(0, pdir / proj["saves_dir"])
     return cfg
 
 
@@ -77,10 +105,11 @@ def game_running():
 def build(cfg, run_dir):
     log = run_dir / "build.log"
     with log.open("w", encoding="utf-8") as f:
-        for cmd in cfg["build"]:
-            f.write(f"> {cmd}\n")
+        steps = [(c, HERE) for c in cfg["build"]] + [(c, cfg["project_dir"]) for c in cfg["project_build"]]
+        for cmd, cwd in steps:
+            f.write(f"> ({cwd}) {cmd}\n")
             f.flush()
-            p = subprocess.run(cmd, shell=True, cwd=HERE, stdout=f, stderr=subprocess.STDOUT)
+            p = subprocess.run(cmd, shell=True, cwd=cwd, stdout=f, stderr=subprocess.STDOUT)
             if p.returncode != 0:
                 tail = "\n".join(log.read_text(encoding="utf-8", errors="replace").splitlines()[-15:])
                 raise ProbeError("build", f"'{cmd}' failed (exit {p.returncode}). See {log}\n{tail}")
@@ -133,7 +162,7 @@ def crash_info(player_log, game_dir, since):
 
 
 def run_cycle(cfg, keep=False, save=None, steps=None, tests=None):
-    run_dir = HERE / "runs" / time.strftime("%Y%m%d-%H%M%S")
+    run_dir = cfg["runs_dir"] / time.strftime("%Y%m%d-%H%M%S")
     run_dir.mkdir(parents=True)
     result = {"ok": False, "run_dir": str(run_dir), "stage": "start"}
     player_log = Path(cfg["player_log"]) if cfg.get("player_log") else DEFAULT_PLAYER_LOG
@@ -143,7 +172,7 @@ def run_cycle(cfg, keep=False, save=None, steps=None, tests=None):
         if game_running():
             raise ProbeError("precheck", "OxygenNotIncluded.exe is already running; close it first")
         # Keep only the latest few run folders.
-        for old in sorted((HERE / "runs").iterdir())[:-10]:
+        for old in sorted(cfg["runs_dir"].iterdir())[:-10]:
             shutil.rmtree(old, ignore_errors=True)
 
         result["stage"] = "build"
@@ -167,7 +196,10 @@ def run_cycle(cfg, keep=False, save=None, steps=None, tests=None):
         save = save or cfg.get("save")
         save_path = None
         if save:
-            save_path = Path(save) if Path(save).is_absolute() else REPO / "saves" / save
+            if Path(save).is_absolute():
+                save_path = Path(save)
+            else:
+                save_path = next((d / save for d in cfg["saves_dirs"] if (d / save).exists()), cfg["saves_dirs"][0] / save)
             if not save_path.exists():
                 raise ProbeError("launch", f"save not found: {save_path}")
         extra = ["-harness-load", str(save_path)] if save_path else []
@@ -295,6 +327,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("run")
+    r.add_argument("--project", help="harness.json of the mod under test (or its folder): its build commands, required_mods, "
+                   "save and runs location are used on top of the harness build")
     r.add_argument("--keep", action="store_true")
     r.add_argument("--steps", help="JSON list of [method, path, body?] run in order once the save is playing")
     r.add_argument("--save", help="save to auto-load (file name in saves/, or a path); default: config 'save'")
@@ -307,7 +341,7 @@ def main():
     h.add_argument("body", nargs="?")
     args = ap.parse_args()
     try:
-        cfg = load_config()
+        cfg = load_config(getattr(args, "project", None))
         if args.cmd == "run":
             tests = None
             if args.tests is not None:

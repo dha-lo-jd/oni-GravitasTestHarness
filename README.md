@@ -52,6 +52,46 @@ public static IEnumerator HeaterWarms()
 詳細（戻り値、`Wait`/`Check`、タグ、結果の種類）は `protocol.md` の「In-game tests」を参照。
 検証対象の Mod を `probe.config.json` の `required_mods` に Mod ID で書くと、probe が `mods.json` でそれらを有効にしてから起動する。
 
+## 他の Mod のソリューションから使う
+
+probe とハーネスはこのリポジトリに置いたまま、検証したい Mod 側に `harness.json` を置いて `--project` で指すだけでよい（Mod 側に Python や設定の複製は要らない）。
+
+```
+python <このrepo>/Gravitas.TestProbe/probe.py run --project <Mod repo> --tests
+```
+
+`harness.json`（Mod repo 直下。パスは `/` 区切りで書く）:
+
+```json
+{
+  "build": ["dotnet build MyMod.sln -v q -p:ModInstallPath=<mods>/local/MyMod"],
+  "required_mods": ["MyMod.Local"],
+  "save": "my-test.sav",
+  "saves_dir": "saves"
+}
+```
+
+- `build`: Mod repo のフォルダで実行する。ハーネス自身のビルドは probe が先に行う（`"build_harness": false` で省略）。`ModInstallPath` が実際にゲームの読む mods フォルダを指しているか確認すること。
+- `required_mods`: 有効化しておく Mod の staticID（ローカル Mod は `<フォルダ名>.Local`）。ハーネスは常に含まれる。
+- `save` / `saves_dir`: セーブは `saves_dir`（Mod repo 基準）、無ければこのリポジトリの `saves/` から探す。
+- 実行ごとの成果物は Mod repo の `.harness-runs/`（直近 10 回）に出る。`.gitignore` に追加すること。
+- マシン固有の設定（`game_dir`、`mods_dir`、`steam_exe`）は probe 側の `probe.config.json` に 1 回だけ書く。
+
+テストは Mod 側に `#if DEBUG` で書く。ハーネスの DLL を参照すれば `Check` / `Wait` が使える
+（csproj に `<Reference Include="Gravitas.TestHarness" Condition="'$(Configuration)'=='Debug'"><HintPath><このrepo>/Gravitas.TestHarness/bin/Debug/netstandard2.1/Gravitas.TestHarness.dll</HintPath><Private>false</Private></Reference>`）。
+参照したくない場合は、`HarnessTestAttribute` と `HarnessAssertionException` を Mod 内に自前で定義すれば名前で認識される
+（`CaffeineIncluded/CaffeineIncluded/HarnessTests.cs` が例。時間を進めるテスト（`Wait`）だけは参照が必要）。
+`--tests` は、そのとき読み込まれている全テスト（ハーネスの自己テスト `harness.*` を含む）を実行する。自分のテストだけなら `--tests '{"tags":["mymod"]}'` のようにタグで絞る。
+
+Mod 側の `CLAUDE.md` には次のように書いておくとエージェントが使える:
+
+```markdown
+## 実機検証
+ONI 実機で検証するには Gravitas.TestHarness を使う。テストは `[HarnessTest]` を付けた static メソッドとして書く（`#if DEBUG`）。
+実行: `python <harness repo>/Gravitas.TestProbe/probe.py run --project . --tests '{"tags":["mymod"]}'`
+ゲームを起動し本番の mods.json を書き換えるので、実行前にユーザーに確認する。詳細は `<harness repo>/README.md` と `protocol.md`。
+```
+
 ## 仕組みと制約
 
 - ゲーム起動は `Steam.exe -applaunch 457140 <引数>`（exe 直接起動は Steam の確認ダイアログで止まる）。設定は起動引数 `-harness-port/-harness-load/-harness-out` で渡す。

@@ -7,6 +7,8 @@ ONI 実機検証ハーネス。概要と使い方は `README.md`、API の正本
 - `Gravitas.TestProbe/`: Python の probe。`probe.py`（サイクル実行）、`mods_json.py`（mods.json 確認・修復）。
 - 仕様書は repo 外: `F:/_System/Download/ONI 実機検証ハーネス 仕様(初版).md`（マイルストーン M1–M7。M1–M6 完了、M7 の MCP ラッパーは任意で未着手）。
 
+- 他の Mod から使う場合は probe の `--project <Mod repo>`（Mod 側の `harness.json`）。手順は `README.md` の「他の Mod のソリューションから使う」。
+
 ## 作業ルール
 - **実機を起動する操作（`probe.py run` など）は、ユーザーの本番環境の `mods.json` を書き換え、ゲームを起動する。** 依頼の範囲に含まれるか確かめ、不明なら先に聞く。
 - ハーネスの挙動を変えたら `TestHarnessMod.Version` と `mod_info.yaml` の version を上げる。プロトコルを壊したら `ProtocolVersion` も上げる。probe は両方をソースと突き合わせ、古いデプロイを検出する。
