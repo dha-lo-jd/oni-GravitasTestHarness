@@ -9,6 +9,9 @@ public static class GameState
     /// <summary>True once the in-game scene has finished spawning (Game.LateUpdate fired OnSpawnComplete).</summary>
     public static bool SpawnComplete;
 
+    /// <summary>Informational mod dialogs (e.g. "mods differ from the save") that the harness recorded and did not show.</summary>
+    public static readonly System.Collections.Generic.List<object> SuppressedDialogs = new System.Collections.Generic.List<object>();
+
     /// <summary>Save most recently requested through <see cref="LoadSave"/>.</summary>
     public static string LoadRequested;
 

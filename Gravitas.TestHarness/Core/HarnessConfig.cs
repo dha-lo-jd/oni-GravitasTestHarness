@@ -30,6 +30,14 @@ internal static class HarnessConfig
         }
     }
 
+    /// <summary>
+    /// <c>-harness-allow-gameover</c> / env GRAVITAS_HARNESS_ALLOW_GAMEOVER=1. By default the game-over check is disabled,
+    /// because a save without duplicants would otherwise show the game-over screen, which pauses the game.
+    /// </summary>
+    public static bool AllowGameOver =>
+        Array.IndexOf(Environment.GetCommandLineArgs(), "-harness-allow-gameover") >= 0
+        || Environment.GetEnvironmentVariable("GRAVITAS_HARNESS_ALLOW_GAMEOVER") == "1";
+
     private static string Get(string arg, string env)
     {
         var args = Environment.GetCommandLineArgs();

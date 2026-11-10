@@ -2,6 +2,7 @@
 
     python probe.py run            build -> fix mods.json -> launch -> wait ready -> check version -> /quit
     python probe.py run --save "name.sav"   also auto-load a save from saves/ and wait until it is playing
+    python probe.py run --save X.sav --steps '[["POST","/time/advance",{"ticks":50}],["POST","/query",{"path":"GameClock.Instance.GetCycle"}]]'
     python probe.py run --keep     same, but leave the game running (for manual poking)
     python probe.py fix-mods       only check/repair mods.json
     python probe.py http GET /ping call an endpoint of an already running game
@@ -37,7 +38,7 @@ class ProbeError(Exception):
 
 def load_config():
     cfg = {"port": 18080, "required_mods": [], "build": [], "launch_args": [],
-           "ready_timeout_s": 240, "quit_timeout_s": 60, "launch_timeout_s": 90, "load_timeout_s": 240, "save": None, "player_log": None,
+           "ready_timeout_s": 240, "quit_timeout_s": 60, "launch_timeout_s": 90, "load_timeout_s": 240, "step_timeout_s": 300, "save": None, "player_log": None,
            "steam_exe": "C:/Program Files (x86)/Steam/steam.exe", "app_id": 457140}
     path = HERE / "probe.config.json"
     if not path.exists():
@@ -93,7 +94,7 @@ def extract_log_problems(log_path, limit=60):
     return [l for l in lines if EXC_RE.search(l)][:limit]
 
 
-def run_cycle(cfg, keep=False, save=None):
+def run_cycle(cfg, keep=False, save=None, steps=None):
     run_dir = HERE / "runs" / time.strftime("%Y%m%d-%H%M%S")
     run_dir.mkdir(parents=True)
     result = {"ok": False, "run_dir": str(run_dir), "stage": "start"}
@@ -184,6 +185,15 @@ def run_cycle(cfg, keep=False, save=None):
             result["load_after_s"] = round(time.time() - load_started, 1)
             result["status"] = status
 
+        if steps:
+            result["stage"] = "steps"
+            result["steps"] = []
+            for method, path, *rest in steps:
+                reply = http(cfg, method.upper(), path, rest[0] if rest else None, timeout=cfg["step_timeout_s"])
+                result["steps"].append({"request": [method, path, *rest], "response": reply})
+                if not reply.get("ok"):
+                    raise ProbeError("steps", f"{method} {path} failed: {reply.get('error', {}).get('message')}")
+
         if keep:
             result.update(ok=True, stage="done", note="game left running (--keep)")
             return result
@@ -226,10 +236,12 @@ def run_cycle(cfg, keep=False, save=None):
 
 
 def main():
+    sys.stdout.reconfigure(encoding="utf-8")  # the Windows console codec (cp932) cannot print everything the game logs
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("run")
     r.add_argument("--keep", action="store_true")
+    r.add_argument("--steps", help="JSON list of [method, path, body?] run in order once the save is playing")
     r.add_argument("--save", help="save to auto-load (file name in saves/, or a path); default: config 'save'")
     sub.add_parser("fix-mods")
     h = sub.add_parser("http")
@@ -240,7 +252,7 @@ def main():
     try:
         cfg = load_config()
         if args.cmd == "run":
-            out = run_cycle(cfg, args.keep, args.save)
+            out = run_cycle(cfg, args.keep, args.save, json.loads(args.steps) if args.steps else None)
         elif args.cmd == "fix-mods":
             out = mods_json.ensure(cfg["mods_dir"], cfg["required_mods"], fix=True)
         else:

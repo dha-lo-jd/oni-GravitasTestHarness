@@ -8,7 +8,7 @@ namespace Gravitas.TestHarness;
 
 public sealed class TestHarnessMod : UserMod2
 {
-    public const string Version = "0.2.0";
+    public const string Version = "0.3.0";
     public const int ProtocolVersion = 1;
 
     internal static string modPath;

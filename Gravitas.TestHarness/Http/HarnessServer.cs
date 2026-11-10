@@ -85,6 +85,16 @@ internal sealed class HarnessServer
                     }
                 }
                 var data = MainThreadDispatcher.Invoke(() => route.Handler(body));
+                if (data is Pending pending)
+                {
+                    if (!pending.Done.Wait(pending.TimeoutMs))
+                    {
+                        if (pending.OnTimeout != null) MainThreadDispatcher.Post(pending.OnTimeout);
+                        throw new TimeoutException("Operation did not finish within " + pending.TimeoutMs + " ms.");
+                    }
+                    if (pending.Error != null) throw pending.Error;
+                    data = pending.Result;
+                }
                 json = JsonConvert.SerializeObject(new { ok = true, data });
                 after = route.AfterResponse;
             }
