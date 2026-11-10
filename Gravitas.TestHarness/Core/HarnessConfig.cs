@@ -2,27 +2,40 @@ using System;
 
 namespace Gravitas.TestHarness.Core;
 
-/// <summary>Harness settings. Environment variables override defaults.</summary>
+/// <summary>
+/// Harness settings. Launch arguments win over environment variables, which win over defaults.
+/// (A game started through Steam does not inherit the caller's environment, hence the arguments.)
+/// </summary>
 internal static class HarnessConfig
 {
     public const int DefaultPort = 18080;
 
-    /// <summary>Port: <c>-harness-port N</c> launch argument, else env GRAVITAS_HARNESS_PORT, else the default.
-    /// (A game started through Steam does not inherit the caller's environment, hence the argument.)</summary>
+    /// <summary><c>-harness-port N</c> / env GRAVITAS_HARNESS_PORT.</summary>
     public static int Port
     {
         get
         {
-            var args = Environment.GetCommandLineArgs();
-            for (var i = 0; i < args.Length - 1; i++)
-                if (args[i] == "-harness-port" && TryPort(args[i + 1], out var fromArg))
-                    return fromArg;
-            return TryPort(Environment.GetEnvironmentVariable("GRAVITAS_HARNESS_PORT"), out var p) ? p : DefaultPort;
+            var s = Get("-harness-port", "GRAVITAS_HARNESS_PORT");
+            return int.TryParse(s, out var p) && p > 0 && p < 65536 ? p : DefaultPort;
         }
     }
 
-    private static bool TryPort(string s, out int port)
+    /// <summary><c>-harness-load PATH</c> / env GRAVITAS_HARNESS_LOAD: save to load automatically at the main menu.</summary>
+    public static string AutoLoadPath
     {
-        return int.TryParse(s, out port) && port > 0 && port < 65536;
+        get
+        {
+            var s = Get("-harness-load", "GRAVITAS_HARNESS_LOAD");
+            return string.IsNullOrWhiteSpace(s) ? null : s;
+        }
+    }
+
+    private static string Get(string arg, string env)
+    {
+        var args = Environment.GetCommandLineArgs();
+        for (var i = 0; i < args.Length - 1; i++)
+            if (args[i] == arg)
+                return args[i + 1];
+        return Environment.GetEnvironmentVariable(env);
     }
 }

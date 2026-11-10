@@ -8,7 +8,7 @@ namespace Gravitas.TestHarness;
 
 public sealed class TestHarnessMod : UserMod2
 {
-    public const string Version = "0.1.0";
+    public const string Version = "0.2.0";
     public const int ProtocolVersion = 1;
 
     internal static string modPath;
@@ -17,7 +17,7 @@ public sealed class TestHarnessMod : UserMod2
     {
         base.OnLoad(harmony);
         modPath = path;
-        harmony.PatchAll(typeof(TestHarnessMod).Assembly);
+        // UserMod2.OnLoad (base) already runs harmony.PatchAll(assembly); patching again would apply every patch twice.
 
         MainThreadDispatcher.Install();
         try
