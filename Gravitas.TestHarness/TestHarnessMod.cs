@@ -1,3 +1,5 @@
+using Gravitas.TestHarness.Core;
+using Gravitas.TestHarness.Http;
 using HarmonyLib;
 using KMod;
 using UnityEngine;
@@ -7,6 +9,7 @@ namespace Gravitas.TestHarness;
 public sealed class TestHarnessMod : UserMod2
 {
     public const string Version = "0.1.0";
+    public const int ProtocolVersion = 1;
 
     internal static string modPath;
 
@@ -15,6 +18,19 @@ public sealed class TestHarnessMod : UserMod2
         base.OnLoad(harmony);
         modPath = path;
         harmony.PatchAll(typeof(TestHarnessMod).Assembly);
+
+        MainThreadDispatcher.Install();
+        try
+        {
+            var server = new HarnessServer();
+            Endpoints.Register(server);
+            server.Start(HarnessConfig.Port);
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogError("[Gravitas.TestHarness] Failed to start HTTP server: " + e);
+        }
+
         Debug.Log("[Gravitas.TestHarness] Loaded v" + Version);
     }
 }
