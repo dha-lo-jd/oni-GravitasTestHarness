@@ -79,6 +79,10 @@ With `target` (a static path as in `/query`, e.g. `Game.Instance` or `Components
 name of an instance method of that value. Arguments are converted with Newtonsoft to the parameter types. Private methods work.
 Overloads are picked by argument count, then by whether the arguments convert.
 
+Built-in diagnostics reachable through `/invoke` (static methods, `Gravitas.TestHarness.Core.HarmonyInspect`):
+`Duplicates(ownerContains)` lists patch methods registered more than once on the same target (a double `PatchAll`), with the patch
+count per Harmony id; `Patches(ownerContains)` lists every patch of the matching Harmony ids.
+
 ## In-game tests
 
 Mark a static, parameterless method with `[HarnessTest]` (`Gravitas.TestHarness.HarnessTestAttribute`). The harness scans every loaded

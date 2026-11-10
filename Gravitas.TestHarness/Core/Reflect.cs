@@ -117,6 +117,7 @@ public static class Reflect
     public static JToken ToJson(object v, int depth = 0)
     {
         if (v == null) return JValue.CreateNull();
+        if (v is JToken token) return token;
         var t = v.GetType();
         if (v is string || t.IsPrimitive || v is decimal)
         {
