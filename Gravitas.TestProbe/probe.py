@@ -27,7 +27,6 @@ import mods_json
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
 DEFAULT_PLAYER_LOG = Path.home() / "AppData/LocalLow/Klei/Oxygen Not Included/Player.log"
-EXC_RE = re.compile(r"Exception|\[Gravitas\.TestHarness\]|^\s*at .+ in |Fatal|Crash", re.I)
 
 
 class ProbeError(Exception):
@@ -87,11 +86,50 @@ def build(cfg, run_dir):
                 raise ProbeError("build", f"'{cmd}' failed (exit {p.returncode}). See {log}\n{tail}")
 
 
-def extract_log_problems(log_path, limit=60):
+STACK_RE = re.compile(r"^\s+at |^\(Filename:|^\s*--- End of")
+EXC_START_RE = re.compile(r"\w*Exception|\[ERROR\]|Fatal")
+TS_RE = re.compile(r"^\[\d\d:\d\d:\d\d\.\d+\] \[\d+\] ")
+
+
+def extract_exceptions(log_path, limit=20, max_lines=25):
+    """Exception / error blocks from Player.log: the first line plus its stack trace, de-duplicated."""
     if not log_path.exists():
         return []
     lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
-    return [l for l in lines if EXC_RE.search(l)][:limit]
+    blocks, seen, i = [], {}, 0
+    while i < len(lines):
+        line = lines[i]
+        if EXC_START_RE.search(line) and not STACK_RE.match(line):
+            if any("Thread was being aborted" in l for l in lines[i:i + 4]):
+                i += 1  # background loader thread cut short by a normal shutdown, not a fault
+                continue
+            block = [line]
+            i += 1
+            while i < len(lines) and len(block) < max_lines and (STACK_RE.match(lines[i]) or not TS_RE.match(lines[i]) and lines[i].strip() and EXC_START_RE.search(lines[i])):
+                block.append(lines[i])
+                i += 1
+            key = TS_RE.sub("", block[0]).strip()
+            if key in seen:
+                blocks[seen[key]]["count"] += 1
+            elif len(blocks) < limit:
+                seen[key] = len(blocks)
+                blocks.append({"count": 1, "text": "\n".join(block)})
+            continue
+        i += 1
+    return blocks
+
+
+def crash_info(player_log, game_dir, since):
+    """Evidence of a crash: new dump files, mod safe mode, last log lines."""
+    info = {}
+    dumps = [str(p) for p in Path(game_dir).glob("*.dmp") if p.stat().st_mtime >= since]
+    if dumps:
+        info["dump_files"] = dumps
+    if player_log.exists():
+        lines = player_log.read_text(encoding="utf-8", errors="replace").splitlines()
+        info["safe_mode"] = any("Entering mod safe mode" in l for l in lines)
+        info["log_tail"] = lines[-30:]
+    return info
 
 
 def run_cycle(cfg, keep=False, save=None, steps=None):
@@ -100,6 +138,7 @@ def run_cycle(cfg, keep=False, save=None, steps=None):
     result = {"ok": False, "run_dir": str(run_dir), "stage": "start"}
     player_log = Path(cfg["player_log"]) if cfg.get("player_log") else DEFAULT_PLAYER_LOG
     launched = False
+    run_started = time.time()
     try:
         if game_running():
             raise ProbeError("precheck", "OxygenNotIncluded.exe is already running; close it first")
@@ -133,7 +172,8 @@ def run_cycle(cfg, keep=False, save=None, steps=None):
                 raise ProbeError("launch", f"save not found: {save_path}")
         extra = ["-harness-load", str(save_path)] if save_path else []
         subprocess.Popen([str(steam), "-applaunch", str(cfg["app_id"]), *cfg["launch_args"],
-                          "-harness-port", str(cfg["port"]), *extra])
+                          "-harness-port", str(cfg["port"]),
+                          "-harness-out", str(run_dir / "screenshots"), *extra])
         started = time.time()
         while not game_running():
             if time.time() - started > cfg["launch_timeout_s"]:
@@ -229,8 +269,10 @@ def run_cycle(cfg, keep=False, save=None, steps=None):
         if player_log.exists():
             shutil.copy2(player_log, run_dir / "Player.log")
             result["player_log"] = str(run_dir / "Player.log")
+            # Exceptions matter even when the run itself passed.
+            result["log_exceptions"] = extract_exceptions(run_dir / "Player.log")
             if not result["ok"]:
-                result["log_excerpt"] = extract_log_problems(run_dir / "Player.log")
+                result["crash"] = crash_info(run_dir / "Player.log", cfg["game_dir"], run_started)
         (run_dir / "result.json").write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
     return result
 

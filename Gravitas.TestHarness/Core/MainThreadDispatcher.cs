@@ -18,11 +18,13 @@ public sealed class MainThreadDispatcher : MonoBehaviour
 
     private static readonly ConcurrentQueue<Call> Queue = new ConcurrentQueue<Call>();
 
+    internal static MainThreadDispatcher Instance;
+
     internal static void Install()
     {
         var go = new GameObject("Gravitas.TestHarness.Dispatcher");
         DontDestroyOnLoad(go);
-        go.AddComponent<MainThreadDispatcher>();
+        Instance = go.AddComponent<MainThreadDispatcher>();
     }
 
     private void Update()

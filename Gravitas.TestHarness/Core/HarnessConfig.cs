@@ -30,6 +30,18 @@ internal static class HarnessConfig
         }
     }
 
+    /// <summary><c>-harness-out DIR</c> / env GRAVITAS_HARNESS_OUT: where screenshots are written.</summary>
+    public static string OutputDir
+    {
+        get
+        {
+            var s = Get("-harness-out", "GRAVITAS_HARNESS_OUT");
+            return string.IsNullOrWhiteSpace(s)
+                ? System.IO.Path.Combine(UnityEngine.Application.persistentDataPath, "harness")
+                : s;
+        }
+    }
+
     /// <summary>
     /// <c>-harness-allow-gameover</c> / env GRAVITAS_HARNESS_ALLOW_GAMEOVER=1. By default the game-over check is disabled,
     /// because a save without duplicants would otherwise show the game-over screen, which pauses the game.

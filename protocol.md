@@ -18,6 +18,7 @@ HTTP status: 200 ok, 404 unknown path, 405 wrong method, 500 handler exception.
 | --- | --- |
 | `-harness-port N` | HTTP port (env fallback `GRAVITAS_HARNESS_PORT`) |
 | `-harness-load PATH` | Save to load automatically once the main menu appears (env fallback `GRAVITAS_HARNESS_LOAD`) |
+| `-harness-out DIR` | Directory for screenshots (env fallback `GRAVITAS_HARNESS_OUT`). The probe passes `runs/<timestamp>/screenshots` |
 | `-harness-allow-gameover` | Keep the game-over check. Off by default: a colony without duplicants would show the game-over screen, which pauses the game |
 
 ## Endpoints
@@ -33,6 +34,7 @@ HTTP status: 200 ok, 404 unknown path, 405 wrong method, 500 handler exception.
 | `POST /time/speed` | `{"speed": 1..3}` | status (does not change paused state) |
 | `POST /time/advance` | one of `{"ticks":N}` `{"seconds":S}` `{"cycles":C}`; optional `"speed":1..3`, `"timeout_s"` (default 120) | `requested_seconds`, `elapsed_seconds`, `elapsed_ticks`, `cycle`, `time_in_cycle`, `time`. Replies after the game has run that long and is paused again |
 | `POST /query` | see below | see below |
+| `POST /screenshot` | `{"name": "optional"}` | `path`, `width`, `height`, `bytes`. PNG of the game view, taken at the end of the next frame, written to `-harness-out` |
 | `POST /quit` | – | `{"quitting": true}`; the game exits right after the reply |
 
 Units: seconds are game seconds, a cycle is 600 s, a tick is 0.2 s (one 200 ms sim step). Advance stops within one 33 ms sim step of the target, so `elapsed_seconds` can exceed the request slightly. Never assert exact equality.
@@ -69,4 +71,4 @@ A path that fails inside `select` yields `"<error: ...>"` for that entry. Values
 
 ## Not implemented yet
 
-`POST /invoke`, `POST /screenshot`, `POST /tests/run` (M5/M6).
+`POST /invoke`, `POST /tests/run` (M6).
