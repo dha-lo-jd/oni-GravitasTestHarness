@@ -53,7 +53,7 @@ def load_config(project=None):
     cfg["project_dir"] = None
     if project:
         # Project file of the mod under test (conventionally <mod repo>/harness.json). Keys: build (commands run in
-        # its folder), required_mods, save, saves_dir, port, build_harness (default true), runs_dir.
+        # its folder), required_mods, exclusive (disable every other mod), save, saves_dir, port, build_harness (default true), runs_dir.
         ppath = Path(project).resolve()
         if ppath.is_dir():
             ppath = ppath / "harness.json"
@@ -68,7 +68,7 @@ def load_config(project=None):
         cfg["project_build"] = proj.get("build", [])
         if proj.get("build_harness", True) is False:
             cfg["build"] = []
-        for key in ("required_mods", "save", "port"):
+        for key in ("required_mods", "save", "port", "exclusive"):
             if key in proj:
                 cfg[key] = proj[key]
         cfg["runs_dir"] = (pdir / proj["runs_dir"]) if proj.get("runs_dir") else pdir / ".harness-runs"
@@ -179,7 +179,7 @@ def run_cycle(cfg, keep=False, save=None, steps=None, tests=None):
         build(cfg, run_dir)
 
         result["stage"] = "mods.json"
-        mods = mods_json.ensure(cfg["mods_dir"], cfg["required_mods"], fix=True)
+        mods = mods_json.ensure(cfg["mods_dir"], cfg["required_mods"], cfg.get("exclusive", False), fix=True)
         result["mods_json"] = mods
         if not mods["ok"]:
             raise ProbeError("mods.json", "; ".join(mods["remaining"]))
@@ -311,7 +311,7 @@ def run_cycle(cfg, keep=False, save=None, steps=None, tests=None):
                 time.sleep(2)
                 result["killed"] = True
                 # The kill interrupts mod loading; repair mods.json so the next run is not in safe mode.
-                result["mods_json_after_kill"] = mods_json.ensure(cfg["mods_dir"], cfg["required_mods"], fix=True)
+                result["mods_json_after_kill"] = mods_json.ensure(cfg["mods_dir"], cfg["required_mods"], cfg.get("exclusive", False), fix=True)
         if player_log.exists():
             shutil.copy2(player_log, run_dir / "Player.log")
             result["player_log"] = str(run_dir / "Player.log")
@@ -349,7 +349,7 @@ def main():
                 tests = json.loads(args.tests) if args.tests.lstrip().startswith("{") else {"pattern": args.tests}
             out = run_cycle(cfg, args.keep, args.save, json.loads(args.steps) if args.steps else None, tests)
         elif args.cmd == "fix-mods":
-            out = mods_json.ensure(cfg["mods_dir"], cfg["required_mods"], fix=True)
+            out = mods_json.ensure(cfg["mods_dir"], cfg["required_mods"], cfg.get("exclusive", False), fix=True)
         else:
             out = http(cfg, args.method.upper(), args.path, json.loads(args.body) if args.body else None)
     except ProbeError as e:
