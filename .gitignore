@@ -13,3 +13,5 @@ __pycache__/
 Gravitas.TestProbe/.mods_state.json
 Gravitas.TestProbe/probe.config.json
 Gravitas.TestProbe/runs/
+
+Gravitas.TestHarness/Local.Build.props
