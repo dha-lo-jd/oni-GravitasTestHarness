@@ -2,6 +2,7 @@
   "game_dir": "C:\\SteamLibrary\\steamapps\\common\\OxygenNotIncluded",
   "mods_dir": "C:\\Path\\To\\Documents\\Klei\\OxygenNotIncluded\\mods",
   "player_log": null,
+  "steam_exe": "C:/Program Files (x86)/Steam/steam.exe",
   "port": 18080,
   "required_mods": [],
   "build": ["dotnet build ../GravitasTestHarness.sln -v q"],

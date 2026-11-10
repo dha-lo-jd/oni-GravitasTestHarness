@@ -36,7 +36,8 @@ class ProbeError(Exception):
 
 def load_config():
     cfg = {"port": 18080, "required_mods": [], "build": [], "launch_args": [],
-           "ready_timeout_s": 240, "quit_timeout_s": 60, "player_log": None}
+           "ready_timeout_s": 240, "quit_timeout_s": 60, "launch_timeout_s": 90, "player_log": None,
+           "steam_exe": "C:/Program Files (x86)/Steam/steam.exe", "app_id": 457140}
     path = HERE / "probe.config.json"
     if not path.exists():
         raise ProbeError("config", f"{path} not found (copy probe.config.example.json)")
@@ -96,7 +97,7 @@ def run_cycle(cfg, keep=False):
     run_dir.mkdir(parents=True)
     result = {"ok": False, "run_dir": str(run_dir), "stage": "start"}
     player_log = Path(cfg["player_log"]) if cfg.get("player_log") else DEFAULT_PLAYER_LOG
-    proc = None
+    launched = False
     try:
         if game_running():
             raise ProbeError("precheck", "OxygenNotIncluded.exe is already running; close it first")
@@ -116,16 +117,26 @@ def run_cycle(cfg, keep=False):
         result["stage"] = "launch"
         if player_log.exists():
             player_log.unlink()
-        exe = Path(cfg["game_dir"]) / "OxygenNotIncluded.exe"
-        env = dict(os.environ, GRAVITAS_HARNESS_PORT=str(cfg["port"]))
-        proc = subprocess.Popen([str(exe), *cfg["launch_args"]], cwd=cfg["game_dir"], env=env)
+        # Launching the exe directly makes Steam show a confirmation prompt; go through Steam instead.
+        # (Steam does not pass our environment on, so the port travels as a launch argument.)
+        steam = Path(cfg["steam_exe"])
+        if not steam.exists():
+            raise ProbeError("launch", f"steam_exe not found: {steam}")
+        launched = True
+        subprocess.Popen([str(steam), "-applaunch", str(cfg["app_id"]), *cfg["launch_args"],
+                          "-harness-port", str(cfg["port"])])
         started = time.time()
+        while not game_running():
+            if time.time() - started > cfg["launch_timeout_s"]:
+                raise ProbeError("launch", f"OxygenNotIncluded.exe did not start within {cfg['launch_timeout_s']} s "
+                                           "(Steam prompt? not logged in?)")
+            time.sleep(0.5)
 
         result["stage"] = "wait-ready"
         ping = None
         while time.time() - started < cfg["ready_timeout_s"]:
-            if proc.poll() is not None and not game_running():
-                raise ProbeError("wait-ready", f"game exited early (code {proc.returncode})")
+            if not game_running():
+                raise ProbeError("wait-ready", "game process exited before the harness answered")
             try:
                 ping = http(cfg, "GET", "/ping", timeout=3)
                 if ping.get("ok"):
@@ -163,8 +174,21 @@ def run_cycle(cfg, keep=False):
     except Exception as e:  # keep the JSON contract even for unexpected failures
         result.update(ok=False, error=f"{type(e).__name__}: {e}")
     finally:
-        if proc is not None and not keep and game_running():
-            subprocess.run(["taskkill", "/F", "/IM", "OxygenNotIncluded.exe"], capture_output=True)
+        if launched and not keep and game_running():
+            # Never kill a game that is still loading unless we must: that makes ONI boot into mod safe mode.
+            try:
+                http(cfg, "POST", "/quit", timeout=3)
+            except (urllib.error.URLError, OSError, ValueError):
+                pass
+            deadline = time.time() + 20
+            while game_running() and time.time() < deadline:
+                time.sleep(0.5)
+            if game_running():
+                subprocess.run(["taskkill", "/F", "/IM", "OxygenNotIncluded.exe"], capture_output=True)
+                time.sleep(2)
+                result["killed"] = True
+                # The kill interrupts mod loading; repair mods.json so the next run is not in safe mode.
+                result["mods_json_after_kill"] = mods_json.ensure(cfg["mods_dir"], cfg["required_mods"], fix=True)
         if player_log.exists():
             shutil.copy2(player_log, run_dir / "Player.log")
             result["player_log"] = str(run_dir / "Player.log")
