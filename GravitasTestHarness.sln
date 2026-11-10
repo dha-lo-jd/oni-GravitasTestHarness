@@ -1,0 +1,16 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Gravitas.TestHarness", "Gravitas.TestHarness\Gravitas.TestHarness.csproj", "{846D2443-00CE-49C2-8CAF-8894E55DF08F}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{846D2443-00CE-49C2-8CAF-8894E55DF08F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{846D2443-00CE-49C2-8CAF-8894E55DF08F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{846D2443-00CE-49C2-8CAF-8894E55DF08F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{846D2443-00CE-49C2-8CAF-8894E55DF08F}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal

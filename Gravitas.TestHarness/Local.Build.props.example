@@ -1,0 +1,6 @@
+<Project>
+    <PropertyGroup>
+        <GameManagedPath>C:\Path\To\OxygenNotIncluded\OxygenNotIncluded_Data\Managed</GameManagedPath>
+        <ModInstallPath>C:\Path\To\mods\local\Gravitas.TestHarness</ModInstallPath>
+    </PropertyGroup>
+</Project>

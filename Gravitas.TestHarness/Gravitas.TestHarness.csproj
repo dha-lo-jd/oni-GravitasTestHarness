@@ -1,0 +1,87 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <Import Project="Local.Build.props" Condition="Exists('Local.Build.props')" />
+
+    <PropertyGroup>
+        <TargetFramework>netstandard2.1</TargetFramework>
+        <RootNamespace>Gravitas.TestHarness</RootNamespace>
+        <ImplicitUsings>disable</ImplicitUsings>
+        <Nullable>disable</Nullable>
+        <ResolveAssemblyWarnOrErrorOnTargetArchitectureMismatch>None</ResolveAssemblyWarnOrErrorOnTargetArchitectureMismatch>
+        <LangVersion>10.0</LangVersion>
+
+        <GameManagedPath Condition="'$(GameManagedPath)' == ''">$(ONI_GAME_MANAGED_PATH)</GameManagedPath>
+        <ModInstallPath Condition="'$(ModInstallPath)' == ''">$(ONI_MOD_INSTALL_PATH)</ModInstallPath>
+        <NoWarn>$(NoWarn);MSB3277</NoWarn>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <Reference Include="0Harmony">
+            <HintPath>$(GameManagedPath)\0Harmony.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
+        <Reference Include="Assembly-CSharp">
+            <HintPath>$(GameManagedPath)\Assembly-CSharp.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
+        <Reference Include="Assembly-CSharp-firstpass">
+            <HintPath>$(GameManagedPath)\Assembly-CSharp-firstpass.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
+        <Reference Include="System.Core">
+            <HintPath>$(GameManagedPath)\System.Core.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
+        <Reference Include="Newtonsoft.Json">
+            <HintPath>$(GameManagedPath)\Newtonsoft.Json.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
+        <Reference Include="UnityEngine">
+            <HintPath>$(GameManagedPath)\UnityEngine.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
+        <Reference Include="UnityEngine.CoreModule">
+            <HintPath>$(GameManagedPath)\UnityEngine.CoreModule.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
+        <Reference Include="UnityEngine.ImageConversionModule">
+            <HintPath>$(GameManagedPath)\UnityEngine.ImageConversionModule.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
+    </ItemGroup>
+
+    <ItemGroup>
+        <None Update="mod_info.yaml">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </None>
+        <None Update="mod.yaml">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </None>
+    </ItemGroup>
+
+    <!-- No pdb in Release builds. -->
+    <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+        <DebugType>none</DebugType>
+        <DebugSymbols>false</DebugSymbols>
+    </PropertyGroup>
+
+    <!-- Debug builds go to the local mods folder (ModInstallPath) for development. -->
+    <Target Name="PostBuild" AfterTargets="Build" Condition="'$(ModInstallPath)' != '' and '$(Configuration)' != 'Release'">
+        <MakeDir Directories="$(ModInstallPath)" />
+        <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(ModInstallPath)" />
+        <Copy SourceFiles="$(TargetDir)$(TargetName).pdb" DestinationFolder="$(ModInstallPath)" Condition="Exists('$(TargetDir)$(TargetName).pdb')" />
+        <Copy SourceFiles="$(ProjectDir)mod_info.yaml;$(ProjectDir)mod.yaml" DestinationFolder="$(ModInstallPath)" />
+    </Target>
+
+    <!-- Release builds produce a clean distribution folder: <repo>\release\Gravitas.TestHarness (git-ignored). -->
+    <Target Name="PackageRelease" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
+        <PropertyGroup>
+            <ReleaseDir>$(ProjectDir)..\release\$(TargetName)</ReleaseDir>
+        </PropertyGroup>
+        <RemoveDir Directories="$(ReleaseDir)" />
+        <MakeDir Directories="$(ReleaseDir)" />
+        <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(ReleaseDir)" />
+        <Copy SourceFiles="$(ProjectDir)mod.yaml;$(ProjectDir)mod_info.yaml" DestinationFolder="$(ReleaseDir)" />
+    </Target>
+
+</Project>

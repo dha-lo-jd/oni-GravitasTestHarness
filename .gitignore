@@ -1,0 +1,10 @@
+bin/
+obj/
+/packages/
+riderModule.iml
+/_ReSharper.Caches/Local.Build.props
+*.sln.DotSettings.user
+.idea/
+.claude/
+.junie/
+release/

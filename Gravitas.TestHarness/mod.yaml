@@ -1,0 +1,2 @@
+title: "Gravitas Test Harness"
+description: "Verification harness for Oxygen Not Included mod development. Exposes a localhost-only HTTP API so external tools can load saves, advance time, inspect state and run tests."
