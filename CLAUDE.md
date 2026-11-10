@@ -4,8 +4,8 @@ ONI 実機検証ハーネス。概要と使い方は `README.md`、API の正本
 
 ## 構成
 - `Gravitas.TestHarness/`: ハーネス Mod（C#）。`Http/`（サーバとエンドポイント）、`Core/`（時間制御・query・invoke・テストランナー）、`Api/`（Mod 側が使う公開 API）、`Patches/`（Harmony）、`SelfTests.cs`。
-- `Gravitas.TestProbe/`: Python の probe。`probe.py`（サイクル実行）、`mods_json.py`（mods.json 確認・修復）。
-- 仕様書は repo 外: `F:/_System/Download/ONI 実機検証ハーネス 仕様(初版).md`（マイルストーン M1–M7。M1–M6 完了、M7 の MCP ラッパーは任意で未着手）。
+- `Gravitas.TestProbe/`: Python の probe。`probe.py`（サイクル実行）、`mods_json.py`（mods.json 確認・修復）、`mcp_server.py`（probe の MCP ラッパー。stdout は JSON-RPC 専用なので print しない）。
+- 仕様書は repo 外: `F:/_System/Download/ONI 実機検証ハーネス 仕様(初版).md`（マイルストーン M1–M7。M1–M7 完了）。
 
 - 他の Mod から使う場合は probe の `--project <Mod repo>`（Mod 側の `harness.json`）。手順は `README.md` の「他の Mod のソリューションから使う」。
 

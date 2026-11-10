@@ -205,7 +205,8 @@ def run_cycle(cfg, keep=False, save=None, steps=None, tests=None):
         extra = ["-harness-load", str(save_path)] if save_path else []
         subprocess.Popen([str(steam), "-applaunch", str(cfg["app_id"]), *cfg["launch_args"],
                           "-harness-port", str(cfg["port"]),
-                          "-harness-out", str(run_dir / "screenshots"), *extra])
+                          "-harness-out", str(run_dir / "screenshots"), *extra],
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         started = time.time()
         while not game_running():
             if time.time() - started > cfg["launch_timeout_s"]:

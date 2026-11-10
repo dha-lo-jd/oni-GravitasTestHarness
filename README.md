@@ -92,6 +92,22 @@ ONI 実機で検証するには Gravitas.TestHarness を使う。テストは `[
 ゲームを起動し本番の mods.json を書き換えるので、実行前にユーザーに確認する。詳細は `<harness repo>/README.md` と `protocol.md`。
 ```
 
+## MCP サーバー（任意）
+
+`Gravitas.TestProbe/mcp_server.py` は probe を MCP ツールとして公開する薄いラッパー（stdio、依存なし）。結果の JSON は CLI と同じ。
+
+```
+claude mcp add gravitas-probe -- python <このrepo>/Gravitas.TestProbe/mcp_server.py
+```
+
+| ツール | 内容 |
+| --- | --- |
+| `harness_run` | `probe.py run` と同じ（`project`、`save`、`tests`、`steps`、`keep`）。数分かかり、実機を起動して本番の `mods.json` を書き換える |
+| `harness_http` | 起動中のゲームの API を直接呼ぶ（`keep: true` で残したゲーム向け） |
+| `harness_fix_mods` | `mods.json` の確認・修復（ゲーム停止中のみ） |
+
+CLI で足りる環境では不要。1 度に処理するのは 1 リクエストだけ（ゲームが 1 つしか起動できないため）。
+
 ## 仕組みと制約
 
 - ゲーム起動は `Steam.exe -applaunch 457140 <引数>`（exe 直接起動は Steam の確認ダイアログで止まる）。設定は起動引数 `-harness-port/-harness-load/-harness-out` で渡す。
