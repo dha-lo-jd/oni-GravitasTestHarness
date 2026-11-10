@@ -8,3 +8,6 @@ riderModule.iml
 .claude/
 .junie/
 release/
+__pycache__/
+*.pyc
+Gravitas.TestProbe/.mods_state.json
