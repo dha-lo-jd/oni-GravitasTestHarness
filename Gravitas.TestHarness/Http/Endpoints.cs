@@ -57,6 +57,10 @@ internal static class Endpoints
         // Body: {"name": "optional-file-name"}. Written to -harness-out DIR; replies with the path.
         server.Map("POST", "/screenshot", body => Screenshot.Capture((string)body?["name"]));
 
+        server.Map("GET", "/tests", TestRunner.List);
+        server.Map("POST", "/tests/run", TestRunner.Run);
+        server.Map("POST", "/invoke", Invoke.Run);
+
         // Responds first, then quits on the next main-thread tick.
         server.Map("POST", "/quit", _ => new { quitting = true }, Application.Quit);
     }

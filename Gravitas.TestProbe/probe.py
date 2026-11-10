@@ -132,7 +132,7 @@ def crash_info(player_log, game_dir, since):
     return info
 
 
-def run_cycle(cfg, keep=False, save=None, steps=None):
+def run_cycle(cfg, keep=False, save=None, steps=None, tests=None):
     run_dir = HERE / "runs" / time.strftime("%Y%m%d-%H%M%S")
     run_dir.mkdir(parents=True)
     result = {"ok": False, "run_dir": str(run_dir), "stage": "start"}
@@ -234,6 +234,19 @@ def run_cycle(cfg, keep=False, save=None, steps=None):
                 if not reply.get("ok"):
                     raise ProbeError("steps", f"{method} {path} failed: {reply.get('error', {}).get('message')}")
 
+        if tests is not None:
+            result["stage"] = "tests"
+            reply = http(cfg, "POST", "/tests/run", tests, timeout=cfg["step_timeout_s"] * 6)
+            if not reply.get("ok"):
+                raise ProbeError("tests", f"/tests/run failed: {reply.get('error', {}).get('message')}")
+            data = reply["data"]
+            result["tests"] = data
+            if data["total"] == 0:
+                raise ProbeError("tests", "no test matched the selection")
+            if data["failed"] or data["errors"]:
+                bad = [f"{r['id']}: {r.get('message')}" for r in data["results"] if r["status"] in ("failed", "error", "timeout")]
+                raise ProbeError("tests", f"{data['failed']} failed, {data['errors']} errors: " + "; ".join(bad))
+
         if keep:
             result.update(ok=True, stage="done", note="game left running (--keep)")
             return result
@@ -285,6 +298,8 @@ def main():
     r.add_argument("--keep", action="store_true")
     r.add_argument("--steps", help="JSON list of [method, path, body?] run in order once the save is playing")
     r.add_argument("--save", help="save to auto-load (file name in saves/, or a path); default: config 'save'")
+    r.add_argument("--tests", nargs="?", const="{}", help="run in-game tests after the steps: a JSON body for /tests/run "
+                   "(names/pattern/tags/timeout_s), a pattern string, or nothing for all non-manual tests")
     sub.add_parser("fix-mods")
     h = sub.add_parser("http")
     h.add_argument("method")
@@ -294,7 +309,10 @@ def main():
     try:
         cfg = load_config()
         if args.cmd == "run":
-            out = run_cycle(cfg, args.keep, args.save, json.loads(args.steps) if args.steps else None)
+            tests = None
+            if args.tests is not None:
+                tests = json.loads(args.tests) if args.tests.lstrip().startswith("{") else {"pattern": args.tests}
+            out = run_cycle(cfg, args.keep, args.save, json.loads(args.steps) if args.steps else None, tests)
         elif args.cmd == "fix-mods":
             out = mods_json.ensure(cfg["mods_dir"], cfg["required_mods"], fix=True)
         else:
