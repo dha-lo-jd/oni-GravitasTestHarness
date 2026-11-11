@@ -81,11 +81,11 @@ python <このrepo>/Gravitas.TestProbe/probe.py run --project <Mod repo> --tests
 
 **DLL を置く前、またはゲームに Mod を認識させる前に `mods.json` を書き換えてはいけない。** ゲームは起動時に `mods.json` を読み、そのあとで mods フォルダの新しい Mod を見つけて `mods.json` に追加する。先に `mods.json` へ書くと、「まだ認識されていない Mod」のエントリがある状態になり、起動途中でクラッシュする。
 
-1. Mod の DLL と `mod.yaml` / `mod_info.yaml` を、ゲームの読む mods フォルダ（`.../mods/local/<名前>`）にビルドして置く。この時点では `mods.json` に触れない（probe の `run` も `fix-mods` も実行しない）。
-2. ゲームを通常どおり起動し、メインメニューが出たらすぐ終了する。これで ONI が新しい Mod を `mods.json` に登録する（staticID は `<フォルダ名>.Local`。エントリが無ければ未登録）。
-3. そのあとで probe を実行する（`mods.json` の有効化は probe が行う）。
+1. Mod の DLL と `mod.yaml` / `mod_info.yaml` を、ゲームの読む mods フォルダ（`.../mods/local/<名前>`）にビルドして置く。この時点では `mods.json` に触れない（通常の `run` も `fix-mods` も実行しない）。
+2. `python <このrepo>/Gravitas.TestProbe/probe.py run --project <Mod repo> --setup` を実行する。probe がビルドし、`mods.json` に触れずにゲームを起動して、`required_mods` とハーネスが `mods.json` に登録されるのを待ち、ゲームを閉じる（セーブのロードもテストもしない）。ゲームを手で起動してすぐ終了しても同じ。
+3. そのあとで通常の `run` を実行する（`mods.json` の有効化は probe が行う）。
 
-probe は `mods.json` にエントリを追加できない（有効・無効を切り替えるだけ）ので、1 と 2 は人間か、ゲームを起動できるエージェントが先に済ませる。ハーネス自身（`Gravitas.TestHarness.Local`）を初めて置くときも同じ。登録済みの Mod の DLL を更新するだけなら、この手順は不要。
+`--setup` は `mods.json` を書き換えない（ゲーム自身が登録のために書く）。登録の判定は `mods.json` に `required_mods` と `Gravitas.TestHarness.Local` の staticID があること（ローカル Mod は `<フォルダ名>.Local`）。`ready_timeout_s` 内に揃わなければ、足りない ID を `error` に出す。probe は通常の `run` ではエントリを追加できない（有効・無効を切り替えるだけ）。ハーネス自身を初めて置くときも同じ。登録済みの Mod の DLL を更新するだけなら、この手順は不要。
 
 テストは Mod 側に `#if DEBUG` で書く。ハーネスの DLL を参照すれば `Check` / `Wait` が使える
 （csproj に `<Reference Include="Gravitas.TestHarness" Condition="'$(Configuration)'=='Debug'"><HintPath><このrepo>/Gravitas.TestHarness/bin/Debug/netstandard2.1/Gravitas.TestHarness.dll</HintPath><Private>false</Private></Reference>`）。
@@ -100,7 +100,7 @@ Mod 側の `CLAUDE.md` には次のように書いておくとエージェント
 ONI 実機で検証するには Gravitas.TestHarness を使う。テストは `[HarnessTest]` を付けた static メソッドとして書く（`#if DEBUG`）。
 実行: `python <harness repo>/Gravitas.TestProbe/probe.py run --project . --tests '{"tags":["mymod"]}'`
 ゲームを起動し本番の mods.json を書き換えるので、実行前にユーザーに確認する。
-新しい Mod を初めて置くときは、DLL 配置 → ゲームを 1 回起動して即終了（Mod が mods.json に登録される）→ その後に probe、の順にする。登録前に mods.json を書き換えるとゲームが起動中にクラッシュする（`<harness repo>/README.md` の「初回セットアップの順序」）。
+新しい Mod を初めて置くときは、DLL 配置 → `probe.py run --project . --setup`（ゲームを起動して Mod を mods.json に登録させ、閉じる）→ 通常の probe、の順にする。登録前に mods.json を書き換えるとゲームが起動中にクラッシュする（`<harness repo>/README.md` の「初回セットアップの順序」）。
 詳細は `<harness repo>/README.md` と `protocol.md`。
 ```
 

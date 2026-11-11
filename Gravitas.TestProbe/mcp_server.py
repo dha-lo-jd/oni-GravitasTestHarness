@@ -36,6 +36,7 @@ TOOLS = [
                 "steps": {"type": "array", "description": "HTTP calls run in order once the save is playing: [[method, path, body?], ...], e.g. [[\"POST\",\"/time/advance\",{\"ticks\":50}]]",
                           "items": {"type": "array"}},
                 "keep": {"type": "boolean", "description": "Leave the game running afterwards (then use harness_http)."},
+                "setup": {"type": "boolean", "description": "First-time registration of a newly placed mod DLL: start the game WITHOUT touching mods.json, wait until ONI has registered the mods in mods.json, then close it. Ignores save/tests/steps/keep. Run this once before the first normal run of a new mod."},
             },
         },
     },
@@ -64,6 +65,8 @@ TOOLS = [
 def call_tool(name, args):
     try:
         cfg = probe.load_config(args.get("project"))
+        if name == "harness_run" and args.get("setup"):
+            return probe.setup_cycle(cfg)
         if name == "harness_run":
             tests = args.get("tests")
             if isinstance(tests, str):

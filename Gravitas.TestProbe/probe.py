@@ -5,6 +5,8 @@
     python probe.py run --save X.sav --steps '[["POST","/time/advance",{"ticks":50}],["POST","/query",{"path":"GameClock.Instance.GetCycle"}]]'
     python probe.py run --project ../../MyMod --tests   test another mod: its harness.json gives build/required_mods/save
     python probe.py run --keep    same, but leave the game running (for manual poking)
+    python probe.py run --setup    first-time registration of a new mod: build -> launch (mods.json untouched) -> wait until
+                                   ONI has registered the mods in mods.json -> close. Run once before the first normal run
     python probe.py fix-mods       only check/repair mods.json
     python probe.py http GET /ping call an endpoint of an already running game
 
@@ -335,6 +337,113 @@ def run_cycle(cfg, keep=False, save=None, steps=None, tests=None):
     return result
 
 
+def registered_ids(mods_dir):
+    """staticIDs ONI has registered in mods.json (empty if the file is missing or unreadable)."""
+    try:
+        data = json.loads(mods_json.mods_json_path(mods_dir).read_text(encoding="utf-8-sig"))
+        return {m.get("staticID") for m in data.get("mods", [])}
+    except (OSError, ValueError):
+        return set()
+
+
+def setup_cycle(cfg):
+    """First-time registration of new mod DLLs: build, start the game WITHOUT touching mods.json, wait until ONI has
+    registered the mods in mods.json, then close the game. Writing mods.json before ONI has seen a mod crashes the start."""
+    run_dir = cfg["runs_dir"] / time.strftime("%Y%m%d-%H%M%S-setup")
+    run_dir.mkdir(parents=True)
+    result = {"ok": False, "run_dir": str(run_dir), "stage": "start", "mode": "setup"}
+    player_log = Path(cfg["player_log"]) if cfg.get("player_log") else DEFAULT_PLAYER_LOG
+    expected = set(cfg["required_mods"]) | {mods_json.HARNESS_ID}
+    launched = False
+    try:
+        if game_running():
+            raise ProbeError("precheck", "OxygenNotIncluded.exe is already running; close it first")
+        result["stage"] = "build"
+        build(cfg, run_dir)
+
+        result["stage"] = "launch"
+        before = registered_ids(cfg["mods_dir"])
+        result["registered_before"] = sorted(expected & before)
+        if player_log.exists():
+            player_log.unlink()
+        steam = Path(cfg["steam_exe"])
+        if not steam.exists():
+            raise ProbeError("launch", f"steam_exe not found: {steam}")
+        launched = True
+        subprocess.Popen([str(steam), "-applaunch", str(cfg["app_id"]), *cfg["launch_args"],
+                          "-harness-port", str(cfg["port"]), "-harness-out", str(run_dir / "screenshots")],
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        started = time.time()
+        while not game_running():
+            if time.time() - started > cfg["launch_timeout_s"]:
+                raise ProbeError("launch", f"OxygenNotIncluded.exe did not start within {cfg['launch_timeout_s']} s")
+            time.sleep(0.5)
+
+        # Registration shows up as new entries in mods.json (ONI writes the file after it has scanned the mods folder).
+        result["stage"] = "wait-registered"
+        while True:
+            if not game_running():
+                raise ProbeError("wait-registered", "game process exited before the mods were registered")
+            missing = expected - registered_ids(cfg["mods_dir"])
+            if not missing:
+                break
+            if time.time() - started > cfg["ready_timeout_s"]:
+                raise ProbeError("wait-registered", f"not registered in mods.json within {cfg['ready_timeout_s']} s: "
+                                                    f"{sorted(missing)} (wrong folder or staticID? is mod_info.yaml in place?)")
+            time.sleep(1)
+        result["registered_after_s"] = round(time.time() - started, 1)
+
+        # Do not close the game while it is still loading mods (that can leave ONI in mod safe mode): wait until the
+        # harness reports the main menu, or, if the harness is not loaded (first time), until Player.log has been quiet.
+        result["stage"] = "wait-boot"
+        while True:
+            if not game_running():
+                raise ProbeError("wait-boot", "game process exited during start-up")
+            try:
+                st = http(cfg, "GET", "/status", timeout=3)
+                if st.get("ok") and st["data"].get("screen") == "main_menu":
+                    break
+            except (urllib.error.URLError, OSError, ValueError, KeyError):
+                pass
+            try:
+                if time.time() - player_log.stat().st_mtime > 15:
+                    break
+            except OSError:
+                pass
+            if time.time() - started > cfg["ready_timeout_s"]:
+                raise ProbeError("wait-boot", f"start-up not finished within {cfg['ready_timeout_s']} s")
+            time.sleep(1)
+        result["booted_after_s"] = round(time.time() - started, 1)
+        time.sleep(3)
+
+        result["stage"] = "quit"
+        # Ask the game to quit: through the harness if it answers, otherwise a window close request (taskkill without
+        # /F is the normal quit path, so ONI can write mods.json).
+        try:
+            http(cfg, "POST", "/quit", timeout=3)
+        except (urllib.error.URLError, OSError, ValueError):
+            subprocess.run(["taskkill", "/IM", "OxygenNotIncluded.exe"], capture_output=True)
+        deadline = time.time() + cfg["quit_timeout_s"]
+        while game_running() and time.time() < deadline:
+            time.sleep(0.5)
+        if game_running():
+            raise ProbeError("quit", f"game still running {cfg['quit_timeout_s']} s after the close request")
+        result.update(ok=True, stage="done", registered=sorted(expected & registered_ids(cfg["mods_dir"])),
+                      note="mods.json was not modified by the probe; run the probe normally from here")
+    except ProbeError as e:
+        result.update(ok=False, stage=e.stage, error=e.message)
+    except Exception as e:
+        result.update(ok=False, error=f"{type(e).__name__}: {e}")
+    finally:
+        if launched and game_running():
+            result.setdefault("note", "game still running; close it before the next step")
+        if player_log.exists():
+            shutil.copy2(player_log, run_dir / "Player.log")
+            result["player_log"] = str(run_dir / "Player.log")
+        (run_dir / "result.json").write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
+    return result
+
+
 def main():
     sys.stdout.reconfigure(encoding="utf-8")  # the Windows console codec (cp932) cannot print everything the game logs
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -342,6 +451,10 @@ def main():
     r = sub.add_parser("run")
     r.add_argument("--project", help="harness.json of the mod under test (or its folder): its build commands, required_mods, "
                    "save and runs location are used on top of the harness build")
+    r.add_argument("--setup", action="store_true",
+                   help="first-time registration: build, start the game WITHOUT touching mods.json, wait until the mods are "
+                        "registered in mods.json, then close it (no save, no tests). Run this before the first normal run "
+                        "after placing a new mod's DLL")
     r.add_argument("--keep", action="store_true")
     r.add_argument("--steps", help="JSON list of [method, path, body?] run in order once the save is playing")
     r.add_argument("--save", help="save to auto-load (file name in saves/, or a path); default: config 'save'")
@@ -355,7 +468,9 @@ def main():
     args = ap.parse_args()
     try:
         cfg = load_config(getattr(args, "project", None))
-        if args.cmd == "run":
+        if args.cmd == "run" and args.setup:
+            out = setup_cycle(cfg)
+        elif args.cmd == "run":
             tests = None
             if args.tests is not None:
                 tests = json.loads(args.tests) if args.tests.lstrip().startswith("{") else {"pattern": args.tests}
