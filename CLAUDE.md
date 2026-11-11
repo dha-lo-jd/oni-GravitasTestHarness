@@ -29,4 +29,6 @@ ONI 実機検証ハーネス。概要と使い方は `README.md`、API の正本
 - ビルド: `dotnet build GravitasTestHarness.sln`（Debug は ModInstallPath へコピーされる）。
 - 実機確認の最小手順: `cd Gravitas.TestProbe && python probe.py run --save "05 all research.sav" --tests`（`saves/` のセーブは複製人間 0 人のサンドボックス）。
 - 失敗時は `runs/<日時>/result.json` の `error`、`log_exceptions`、`crash` と `Player.log` を見る。
-- 速度 3x を超える進行は未検証。
+- 3x で 1 サイクル（600 秒）進めても誤差は 0.03 秒（実時間は約 2.8 分）。ゲーム内の速度は 3x が上限で、ハーネスも 1〜3 だけを受け付ける。
+- 有人セーブ（`saves/Live Human Testing.sav`）では、複製人間のいる状態で進行・テストとも動く（サンドボックスで 1 サイクル進めると餓死する）。
+- 進行中はゲームが `saves/auto_save/` に自動セーブを書く。コミットしない。

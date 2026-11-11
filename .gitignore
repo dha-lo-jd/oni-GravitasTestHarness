@@ -14,3 +14,4 @@ Gravitas.TestProbe/probe.config.json
 Gravitas.TestProbe/runs/
 
 Gravitas.TestHarness/Local.Build.props
+saves/auto_save/
