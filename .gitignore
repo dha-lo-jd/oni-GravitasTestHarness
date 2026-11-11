@@ -10,7 +10,6 @@ riderModule.iml
 release/
 __pycache__/
 *.pyc
-Gravitas.TestProbe/.mods_state.json
 Gravitas.TestProbe/probe.config.json
 Gravitas.TestProbe/runs/
 

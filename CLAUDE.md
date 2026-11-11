@@ -16,6 +16,8 @@ ONI 実機検証ハーネス。概要と使い方は `README.md`、API の正本
 - コミットは依頼されたときだけ。`git add -A` は使わず、ファイルを指定する（`Local.Build.props`、`probe.config.json`、`runs/` は追跡しない）。
 
 ## コードの落とし穴
+- `mods.json` で Mod が有効かどうかは `enabledForDlc`（アクティブな DLC の ID を含むか）で決まる。`enabled` は古い互換項目で、終了時に ONI が書き換え、ゲームは見ない。`staticID` は一意ではない（Workshop 版と開発版が同じ ID を持つ）。同名のアセンブリは Mono が 1 つしか読み込まないので、Workshop 版を有効にしたまま開発版をテストしても開発版は動かない。
+- probe は実行前の `mods.json` を保存して、終了後に書き戻す。恒久的な構成を変えるときだけ `python mods_json.py fix --mods-dir <mods> --id <ID> --exclusive` を使う（ゲーム停止中のみ）。
 - ONI にはグローバルな `Action` enum がある。デリゲートは必ず `System.Action`、時刻は `System.DateTime`。
 - `UserMod2.OnLoad` の基底がすでに Harmony の `PatchAll` を実行する。もう一度呼ぶとパッチが二重に当たる。
 - ゲームのメインスレッド以外から Unity API に触れない。HTTP ハンドラは `MainThreadDispatcher` 経由でメインスレッドで動く。待つ必要がある応答は `Pending` を返す。

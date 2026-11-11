@@ -16,7 +16,7 @@ ONI (Oxygen Not Included) の実機検証ハーネス。ゲーム内に HTTP JSO
    `ModInstallPath`（`Documents/Klei/OxygenNotIncluded/mods/local/Gravitas.TestHarness`）を自分の環境に合わせる。
 2. `Gravitas.TestProbe/probe.config.example.json` を `probe.config.json` にコピーして編集する（`game_dir`、`mods_dir`、`steam_exe`、`port` など）。
 3. ビルドする: `dotnet build GravitasTestHarness.sln`（Debug は Mod フォルダへ自動コピーされる。Release は `release/` に出力）。
-4. ゲームのモード管理画面でハーネスを一度有効化しておく（以後 probe が `mods.json` を毎回確認・修復する）。
+4. ゲームのモード管理画面でハーネスを一度有効化しておく（以後 probe が `mods.json` を毎回確認・修復する）。有効かどうかは `enabledForDlc` で決まる（`enabled` は無視される）。
 
 ## 使い方
 
@@ -50,7 +50,7 @@ public static IEnumerator HeaterWarms()
 ```
 
 詳細（戻り値、`Wait`/`Check`、タグ、結果の種類）は `protocol.md` の「In-game tests」を参照。
-検証対象の Mod を `probe.config.json` の `required_mods` に Mod ID で書くと、probe が `mods.json` でそれらを有効にしてから起動する。
+検証対象の Mod を `probe.config.json` の `required_mods` に Mod ID で書くと、probe が `mods.json` でそれらを有効にしてから起動する。実行が終わってゲームが終了したら、probe は実行前の `mods.json` を**そのまま書き戻す**（ユーザーの有効 Mod 構成を変えない）。`--keep` のときは書き戻さないので、終了後に `fix-mods` か `mods.json.probe-backup-*` で戻す。
 
 ## 他の Mod のソリューションから使う
 
@@ -111,7 +111,7 @@ CLI で足りる環境では不要。1 度に処理するのは 1 リクエス�
 ## 仕組みと制約
 
 - ゲーム起動は `Steam.exe -applaunch 457140 <引数>`（exe 直接起動は Steam の確認ダイアログで止まる）。設定は起動引数 `-harness-port/-harness-load/-harness-out` で渡す。
-- 起動中に強制終了すると、次回が Mod セーフモード（全 Mod 無効）になる。probe は通常 `/quit` で正常終了し、強制終了した場合は `mods.json` を修復する。
+- 起動中に強制終了すると、次回が Mod セーフモード（全 Mod 無効）になる。probe は通常 `/quit` で正常終了し、強制終了した場合も、実行前の `mods.json` を書き戻すので、次回はセーフモードにならない。
 - ロード後の「Mod 構成が変わった」ダイアログは抑制して `/status.suppressed_dialogs` に記録する。複製人間 0 人のセーブでもゲームオーバー画面で止まらないようにしてある（`-harness-allow-gameover` で解除）。
 - 時間の単位はゲーム秒（1 サイクル = 600 s、1 ティック = 0.2 s）。3x 速度で 1 サイクルが実時間で約 200 秒かかる。
 - API は 127.0.0.1 のみで待ち受ける。任意コードの評価は無く、`/invoke` はリフレクション呼び出しだけ。

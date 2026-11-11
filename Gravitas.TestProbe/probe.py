@@ -167,6 +167,7 @@ def run_cycle(cfg, keep=False, save=None, steps=None, tests=None):
     result = {"ok": False, "run_dir": str(run_dir), "stage": "start"}
     player_log = Path(cfg["player_log"]) if cfg.get("player_log") else DEFAULT_PLAYER_LOG
     launched = False
+    original_mods = None
     run_started = time.time()
     try:
         if game_running():
@@ -179,7 +180,9 @@ def run_cycle(cfg, keep=False, save=None, steps=None, tests=None):
         build(cfg, run_dir)
 
         result["stage"] = "mods.json"
-        mods = mods_json.ensure(cfg["mods_dir"], cfg["required_mods"], cfg.get("exclusive", False), fix=True)
+        # The run needs the harness and the mods under test enabled, but the user's own set must come back afterwards.
+        original_mods = mods_json.snapshot(cfg["mods_dir"])
+        mods = mods_json.ensure(cfg["mods_dir"], cfg["required_mods"], cfg.get("exclusive", False), fix=True, dlc_id=cfg.get("dlc_id"))
         result["mods_json"] = mods
         if not mods["ok"]:
             raise ProbeError("mods.json", "; ".join(mods["remaining"]))
@@ -310,8 +313,17 @@ def run_cycle(cfg, keep=False, save=None, steps=None, tests=None):
                 subprocess.run(["taskkill", "/F", "/IM", "OxygenNotIncluded.exe"], capture_output=True)
                 time.sleep(2)
                 result["killed"] = True
-                # The kill interrupts mod loading; repair mods.json so the next run is not in safe mode.
-                result["mods_json_after_kill"] = mods_json.ensure(cfg["mods_dir"], cfg["required_mods"], cfg.get("exclusive", False), fix=True)
+        # Put the user's mods.json back (also clears what a kill during mod loading leaves behind, so the next
+        # start is not in mod safe mode). Only once the game is gone: ONI rewrites the file on exit.
+        if original_mods is not None and not keep:
+            if game_running():
+                result["mods_json_restored"] = False
+                result["mods_json_note"] = "game still running; mods.json not restored"
+            else:
+                result["mods_json_restored"] = True
+                result["mods_json_changed_by_game_or_probe"] = mods_json.restore(cfg["mods_dir"], original_mods)
+        elif keep and original_mods is not None:
+            result["mods_json_note"] = "game left running (--keep): mods.json still has the probe's changes; run 'fix-mods' or restore the .probe-backup-* file after quitting"
         if player_log.exists():
             shutil.copy2(player_log, run_dir / "Player.log")
             result["player_log"] = str(run_dir / "Player.log")
@@ -349,7 +361,7 @@ def main():
                 tests = json.loads(args.tests) if args.tests.lstrip().startswith("{") else {"pattern": args.tests}
             out = run_cycle(cfg, args.keep, args.save, json.loads(args.steps) if args.steps else None, tests)
         elif args.cmd == "fix-mods":
-            out = mods_json.ensure(cfg["mods_dir"], cfg["required_mods"], cfg.get("exclusive", False), fix=True)
+            out = mods_json.ensure(cfg["mods_dir"], cfg["required_mods"], cfg.get("exclusive", False), fix=True, dlc_id=cfg.get("dlc_id"))
         else:
             out = http(cfg, args.method.upper(), args.path, json.loads(args.body) if args.body else None)
     except ProbeError as e:
