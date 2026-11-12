@@ -152,6 +152,19 @@ def extract_exceptions(log_path, limit=20, max_lines=25):
 
 
 def crash_info(player_log, game_dir, since):
+SAFE_MODE_MARKER = "Entering mod safe mode"
+SAFE_MODE_MESSAGE = ("ONI started in mod safe mode (no mod is loaded, so the harness never answers): the previous start died "
+                     "while loading mods. The game is closed and the next start should be normal; run again. If it repeats, "
+                     "run 'fix-mods' and check the KPlayerPrefs value DisableAutoModSafeMode.")
+
+
+def in_safe_mode(player_log):
+    try:
+        return SAFE_MODE_MARKER in Path(player_log).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+
+
     """Evidence of a crash: new dump files, mod safe mode, last log lines."""
     info = {}
     dumps = [str(p) for p in Path(game_dir).glob("*.dmp") if p.stat().st_mtime >= since]
@@ -238,6 +251,9 @@ def run_cycle(cfg, keep=False, save=None, steps=None, tests=None):
         result["ping"] = ping["data"]
 
         result["stage"] = "version"
+            if in_safe_mode(player_log):
+                result["safe_mode"] = True
+                raise ProbeError("safe-mode", SAFE_MODE_MESSAGE)
         ver = http(cfg, "GET", "/version")["data"]
         exp_ver, exp_proto = expected_versions()
         result["version"] = ver
@@ -402,6 +418,9 @@ def setup_cycle(cfg):
         # Do not close the game while it is still loading mods (that can leave ONI in mod safe mode): wait until the
         # harness reports the main menu, or, if the harness is not loaded (first time), until Player.log has been quiet.
         result["stage"] = "wait-boot"
+            if in_safe_mode(player_log):
+                result["safe_mode"] = True
+                raise ProbeError("safe-mode", SAFE_MODE_MESSAGE)
         while True:
             if not game_running():
                 raise ProbeError("wait-boot", "game process exited during start-up")

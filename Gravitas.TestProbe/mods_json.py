@@ -77,7 +77,7 @@ def inspect(data, required_ids, exclusive=False, dlc=None):
     for sid in required_ids:
         group = by_id.get(sid)
         if not group:
-            problems.append(f"{sid}: not registered in mods.json (start the game once and register it)")
+            problems.append(f"{sid}: not registered in mods.json (place the DLL, then run 'probe.py run --setup' so the game registers it)")
             continue
         # Already loaded by any copy is enough; otherwise switch on the first one only.
         mod = next((m for m in group if is_on(m, dlc)), group[0])

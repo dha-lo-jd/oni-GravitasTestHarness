@@ -52,6 +52,8 @@ public static IEnumerator HeaterWarms()
 詳細（戻り値、`Wait`/`Check`、タグ、結果の種類）は `protocol.md` の「In-game tests」を参照。
 検証対象の Mod を `probe.config.json` の `required_mods` に Mod ID で書くと、probe が `mods.json` でそれらを有効にしてから起動する。実行が終わってゲームが終了したら、probe は実行前の `mods.json` を**そのまま書き戻す**（ユーザーの有効 Mod 構成を変えない）。`--keep` のときは書き戻さないので、終了後に `fix-mods` か `mods.json.probe-backup-*` で戻す。
 
+**セーフモード**: 起動後にゲームが Mod セーフモードで立ち上がると（直前の起動が読み込み中に死んだ場合）、ハーネスが読み込まれず応答しない。probe はログの `Entering mod safe mode` を見て、タイムアウトを待たずに `stage: safe-mode` で止める（実行前に `mod_load_in_progress` も直す）。
+
 ## 他の Mod のソリューションから使う
 
 probe とハーネスはこのリポジトリに置いたまま、検証したい Mod 側に `harness.json` を置いて `--project` で指すだけでよい（Mod 側に Python や設定の複製は要らない）。
