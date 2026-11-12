@@ -25,6 +25,12 @@ public sealed class HarnessTestAttribute : Attribute
 
     /// <summary>Default true: the test is skipped unless a save is loaded and ready.</summary>
     public bool RequiresGame { get; set; } = true;
+
+    /// <summary>
+    /// When the run uses <c>fail_on_log_errors</c>, a passing test that logged error/exception lines is reported as failed.
+    /// Set true for a test that triggers errors on purpose (or consume them with <see cref="Check.ExpectLogError"/>).
+    /// </summary>
+    public bool AllowLogErrors { get; set; }
 }
 
 public sealed class HarnessAssertionException : Exception
@@ -69,6 +75,28 @@ public static class Check
     {
         if (!(actual >= minimum))
             Fail((message != null ? message + ": " : "") + "expected >= " + minimum + " but was " + actual);
+    }
+
+    /// <summary>
+    /// Fails if an error/exception/assert line has been logged since the test started (and was not consumed by
+    /// <see cref="ExpectLogError"/> or matched by the run's <c>ignore_log_errors</c>). Call it at the end of a test, or after
+    /// the step that must not log an error.
+    /// </summary>
+    public static void NoLogErrors(string message = null)
+    {
+        var bad = Core.TestRunner.UnexpectedLogs();
+        if (bad.Count == 0) return;
+        var first = bad[0].Message;
+        Fail((message != null ? message + ": " : "") + bad.Count + " error log(s); first: " + (first.Length > 300 ? first.Substring(0, 300) + "..." : first));
+    }
+
+    /// <summary>
+    /// Passes when an error/exception line matching the regex <paramref name="pattern"/> was logged since the test started,
+    /// and marks it as expected so it no longer counts as unexpected. Use it to test that a mod reports a bad input.
+    /// </summary>
+    public static void ExpectLogError(string pattern)
+    {
+        if (!Core.TestRunner.ConsumeLog(pattern)) Fail("expected an error log matching /" + pattern + "/ but none was logged");
     }
 
     /// <summary>Passes when <paramref name="action"/> throws <typeparamref name="T"/>.</summary>

@@ -17,12 +17,38 @@ public static class TestRunner
     private static bool _running;
     private static bool _cancel;
 
+    /// <summary>One error/exception/assert line logged while a test ran.</summary>
+    public sealed class LogEntry
+    {
+        public string Type;
+        public string Message;
+        /// <summary>Consumed by <c>Check.ExpectLogError</c>, or matched an ignore pattern: never counts as unexpected.</summary>
+        public bool Expected;
+    }
+
+    private static readonly List<LogEntry> CurrentLogs = new List<LogEntry>();
+    private static List<Regex> _ignoreLogErrors = new List<Regex>();
+
+    /// <summary>Error logs of the test that is running now that nobody expected (see <c>Check.NoLogErrors</c>).</summary>
+    public static List<LogEntry> UnexpectedLogs() => CurrentLogs.Where(l => !l.Expected).ToList();
+
+    /// <summary>Marks the first unexpected log whose message matches <paramref name="pattern"/> as expected.</summary>
+    public static bool ConsumeLog(string pattern)
+    {
+        var rx = new Regex(pattern);
+        var hit = CurrentLogs.FirstOrDefault(l => !l.Expected && rx.IsMatch(l.Message));
+        if (hit == null) return false;
+        hit.Expected = true;
+        return true;
+    }
+
     public sealed class TestCase
     {
         public string Id;
         public string[] Tags;
         public int TimeoutSeconds;
         public bool RequiresGame;
+        public bool AllowLogErrors;
         public MethodInfo Method;
         public string Invalid;
         public bool Manual => Tags.Contains("manual");
@@ -64,6 +90,7 @@ public static class TestRunner
                         Tags = (Prop<string>(attr, "Tags") ?? "").Split(new[] { ',', ' ' }, StringSplitOptions.RemoveEmptyEntries),
                         TimeoutSeconds = timeout > 0 ? timeout : DefaultTimeoutSeconds,
                         RequiresGame = requires,
+                        AllowLogErrors = Prop<bool>(attr, "AllowLogErrors"),
                         Method = m,
                     };
                     if (m.GetParameters().Length != 0) tc.Invalid = "test methods take no parameters";
@@ -100,6 +127,8 @@ public static class TestRunner
     /// <summary>
     /// Body: <c>names</c> (exact ids), <c>pattern</c> (glob on id, '*' and '?'; without wildcards = substring),
     /// <c>tags</c> (any match), <c>timeout_s</c> (whole run, default 1800). No selector = every test except tag "manual".
+    /// <c>fail_on_log_errors</c> (bool): a test that passed but logged unexpected error/exception lines is reported as failed.
+    /// <c>ignore_log_errors</c> (regex list): error messages that never count. A test may opt out with <c>AllowLogErrors = true</c>.
     /// </summary>
     public static Pending Run(JObject body)
     {
@@ -119,23 +148,28 @@ public static class TestRunner
             return tags != null && t.Tags.Any(tg => tags.Contains(tg));
         }).ToList();
 
+        var failOnLogErrors = body?["fail_on_log_errors"] != null && (bool)body["fail_on_log_errors"];
+        var ignore = new List<Regex>();
+        foreach (var p in (body?["ignore_log_errors"] as JArray) ?? new JArray()) ignore.Add(new Regex((string)p));
+
         var timeoutMs = body?["timeout_s"] != null ? (int)((float)body["timeout_s"] * 1000) : 1800000;
         var pending = new Pending { TimeoutMs = timeoutMs, OnTimeout = () => { _cancel = true; TimeControl.Cancel(); } };
         _running = true;
         _cancel = false;
-        MainThreadDispatcher.Instance.StartCoroutine(RunAll(selected, pending));
+        _ignoreLogErrors = ignore;
+        MainThreadDispatcher.Instance.StartCoroutine(RunAll(selected, pending, failOnLogErrors));
         return pending;
     }
 
-    private static IEnumerator RunAll(List<TestCase> tests, Pending pending)
+    private static IEnumerator RunAll(List<TestCase> tests, Pending pending, bool failOnLogErrors)
     {
         var results = new JArray();
         var sw = Stopwatch.StartNew();
-        var logs = new List<string>();
+        var logs = CurrentLogs;
         Application.LogCallback onLog = (msg, stack, type) =>
         {
             if (type == LogType.Error || type == LogType.Exception || type == LogType.Assert)
-                logs.Add(type + ": " + msg);
+                logs.Add(new LogEntry { Type = type.ToString(), Message = msg, Expected = _ignoreLogErrors.Any(r => r.IsMatch(msg)) });
         };
         Application.logMessageReceived += onLog;
         try
@@ -149,12 +183,19 @@ public static class TestRunner
                 var tsw = Stopwatch.StartNew();
                 yield return RunOne(t, result);
                 result["duration_ms"] = tsw.ElapsedMilliseconds;
-                if (logs.Count > 0) result["log_errors"] = new JArray(logs.Take(20));
+                if (logs.Count > 0) result["log_errors"] = new JArray(logs.Take(20).Select(l => l.Type + ": " + l.Message));
+                var unexpected = logs.Where(l => !l.Expected).ToList();
+                if (failOnLogErrors && !t.AllowLogErrors && unexpected.Count > 0 && (string)result["status"] == "passed")
+                {
+                    var first = unexpected[0].Message;
+                    Set(result, "failed", unexpected.Count + " unexpected error log(s); first: " + (first.Length > 300 ? first.Substring(0, 300) + "..." : first));
+                }
             }
         }
         finally
         {
             Application.logMessageReceived -= onLog;
+            logs.Clear();
             _running = false;
         }
 

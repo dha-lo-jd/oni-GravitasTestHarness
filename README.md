@@ -93,6 +93,8 @@ python <このrepo>/Gravitas.TestProbe/probe.py run --project <Mod repo> --tests
 （`CaffeineIncluded/CaffeineIncluded/HarnessTests.cs` が例。時間を進めるテスト（`Wait`）だけは参照が必要）。
 `--tests` は、そのとき読み込まれている全テスト（ハーネスの自己テスト `harness.*` を含む）を実行する。自分のテストだけなら `--tests '{"tags":["mymod"]}'` のようにタグで絞る。
 
+- **エラーログをテストの合否にする**: `Check.NoLogErrors()` / `Check.ExpectLogError(regex)`、または実行オプション `"fail_on_log_errors": true`（`--tests '{"fail_on_log_errors":true}'`、`harness.json` に書けば既定になる。ゲームの既知のノイズは `"ignore_log_errors": ["正規表現"]`）。テスト中に出たエラー/例外ログがあると、通っていたテストが `failed` になる。意図的にエラーを出すテストは `[HarnessTest(AllowLogErrors = true)]`。
+
 Mod 側の `CLAUDE.md` には次のように書いておくとエージェントが使える:
 
 ```markdown

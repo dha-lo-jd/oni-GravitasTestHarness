@@ -55,7 +55,8 @@ def load_config(project=None):
     cfg["project_dir"] = None
     if project:
         # Project file of the mod under test (conventionally <mod repo>/harness.json). Keys: build (commands run in
-        # its folder), required_mods, exclusive (disable every other mod), save, saves_dir, port, build_harness (default true), runs_dir.
+        # its folder), required_mods, exclusive (disable every other mod), save, saves_dir, port, build_harness (default true), runs_dir,
+        # fail_on_log_errors / ignore_log_errors (defaults for the tests stage, see protocol.md).
         ppath = Path(project).resolve()
         if ppath.is_dir():
             ppath = ppath / "harness.json"
@@ -70,7 +71,7 @@ def load_config(project=None):
         cfg["project_build"] = proj.get("build", [])
         if proj.get("build_harness", True) is False:
             cfg["build"] = []
-        for key in ("required_mods", "save", "port", "exclusive"):
+        for key in ("required_mods", "save", "port", "exclusive", "fail_on_log_errors", "ignore_log_errors"):
             if key in proj:
                 cfg[key] = proj[key]
         cfg["runs_dir"] = (pdir / proj["runs_dir"]) if proj.get("runs_dir") else pdir / ".harness-runs"
@@ -297,6 +298,11 @@ def run_cycle(cfg, keep=False, save=None, steps=None, tests=None):
         if game_running():
             raise ProbeError("quit", f"game still running {cfg['quit_timeout_s']} s after /quit")
         result.update(ok=True, stage="done")
+            # Project defaults (harness.json): a test run fails on unexpected error logs unless the request says otherwise.
+            tests = dict(tests)
+            for key in ("fail_on_log_errors", "ignore_log_errors"):
+                if key in cfg:
+                    tests.setdefault(key, cfg[key])
     except ProbeError as e:
         result.update(ok=False, stage=e.stage, error=e.message)
     except Exception as e:  # keep the JSON contract even for unexpected failures

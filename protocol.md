@@ -36,7 +36,7 @@ HTTP status: 200 ok, 404 unknown path, 405 wrong method, 500 handler exception.
 | `POST /query` | see below | see below |
 | `POST /screenshot` | `{"name": "optional"}` | `path`, `width`, `height`, `bytes`. PNG of the game view, taken at the end of the next frame, written to `-harness-out` |
 | `GET /tests` | – | `count`, `tests[]` (`id`, `tags`, `requires_game`, `timeout_s`, `invalid`) |
-| `POST /tests/run` | `{"names":[..],"pattern":"..","tags":[..],"timeout_s":N}` (all optional) | `total`, `passed`, `failed`, `errors`, `skipped`, `duration_ms`, `results[]`. Replies when every selected test is done |
+| `POST /tests/run` | `{"names":[..],"pattern":"..","tags":[..],"timeout_s":N,"fail_on_log_errors":bool,"ignore_log_errors":[regex..]}` (all optional) | `total`, `passed`, `failed`, `errors`, `skipped`, `duration_ms`, `results[]`. Replies when every selected test is done |
 | `POST /invoke` | `{"method":"Ns.Type.StaticMethod","args":[..]}` or `{"target":"Game.Instance","method":"Name","args":[..]}` | `method`, `result` (JSON as in /query) |
 | `POST /quit` | – | `{"quitting": true}`; the game exits right after the reply |
 
@@ -107,7 +107,15 @@ public static IEnumerator HeaterWarms()
 - Tags: tests tagged `manual` run only when named or selected by tag. Selection: `names` exact ids, `pattern` glob on the id
   (substring without wildcards), `tags` any match. No selector = all non-manual tests.
 - Game state carries over between tests in one run. Put a test that needs a clean state in its own save/run.
-- Error/exception log lines emitted during a test are returned as `log_errors` (they do not fail the test by themselves).
+- Error/exception/assert log lines emitted during a test are returned as `log_errors` (they do not fail the test by themselves).
+  Error logs as assertions:
+  - `Check.NoLogErrors()` fails if an unexpected error line was logged since the test started; `Check.ExpectLogError(regex)` passes
+    when one matching was logged and marks it expected (to test that a mod reports bad input).
+  - Run option `"fail_on_log_errors": true` (in the `/tests/run` body): a test that passed but logged unexpected error lines is
+    reported as `failed` ("N unexpected error log(s); first: ..."). `"ignore_log_errors": ["regex", ...]` lists messages that never
+    count (known game noise). A test that errors on purpose opts out with `[HarnessTest(AllowLogErrors = true)]`.
+  - The probe takes the same two keys from `harness.json` as defaults for its tests stage.
+  - Only lines logged while a test runs are counted. Errors at game start-up are in the probe's `log_exceptions`.
 - The probe: `python probe.py run --save X.sav --tests` (all), `--tests "pattern"` or `--tests '{"tags":["heat"]}'`. A failed/errored test
   fails the run (`stage: "tests"`), and the full results stay in `result.json`.
 - `Gravitas.TestHarness/SelfTests.cs` has the harness's own tests (tag `selftest`) and failing demos (tag `manual,demo`).
