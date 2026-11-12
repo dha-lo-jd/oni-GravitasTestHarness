@@ -17,7 +17,7 @@ ONI 実機検証ハーネス。概要と使い方は `README.md`、API の正本
 
 ## コードの落とし穴
 - `mods.json` で Mod が有効かどうかは `enabledForDlc`（アクティブな DLC の ID を含むか）で決まる。`enabled` は古い互換項目で、終了時に ONI が書き換え、ゲームは見ない。`staticID` は一意ではない（Workshop 版と開発版が同じ ID を持つ）。同名のアセンブリは Mono が 1 つしか読み込まないので、Workshop 版を有効にしたまま開発版をテストしても開発版は動かない。
-- probe は実行前の `mods.json` を保存して、終了後に書き戻す。恒久的な構成を変えるときだけ `python mods_json.py fix --mods-dir <mods> --id <ID> --exclusive` を使う（ゲーム停止中のみ）。
+- probe は実行前の `mods.json` を保存して（メモリと `mods.json.probe-pending`）、終了後に書き戻す。probe が死んだ・`--keep` のあとは、次の `run` が `stale-mods-json` で止まるので `probe.py restore-mods`（または `--discard`）。恒久的な構成を変えるときだけ `python mods_json.py fix --mods-dir <mods> --id <ID> --exclusive` を使う（ゲーム停止中のみ）。
 - 新しい Mod の DLL を初めて置くときは、ゲームがそれを認識して `mods.json` に登録する**前**に `mods.json` を書き換えてはいけない（未認識の Mod のエントリがあると起動中にクラッシュする）。順序は DLL 配置 → `probe.py run --project <Mod repo> --setup`（`mods.json` に触れずに起動・登録待ち・終了）→ 通常の probe。通常の `run` はエントリを追加できない（`README.md`「初回セットアップの順序」）。
 - ONI にはグローバルな `Action` enum がある。デリゲートは必ず `System.Action`、時刻は `System.DateTime`。
 - `UserMod2.OnLoad` の基底がすでに Harmony の `PatchAll` を実行する。もう一度呼ぶとパッチが二重に当たる。

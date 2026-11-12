@@ -55,6 +55,11 @@ TOOLS = [
         },
     },
     {
+        "name": "harness_restore_mods",
+        "description": "Put back the user's original mods.json after a harness_run that died or used keep=true (the next harness_run refuses to start until then). discard=true keeps the current mods.json and only drops the saved original. The game must not be running.",
+        "inputSchema": {"type": "object", "properties": {"project": {"type": "string"}, "discard": {"type": "boolean"}}},
+    },
+    {
         "name": "harness_fix_mods",
         "description": "Check and repair mods.json (re-enable the harness and required mods after a crash). The game must not be running.",
         "inputSchema": {"type": "object", "properties": {"project": {"type": "string"}}},
@@ -74,6 +79,10 @@ def call_tool(name, args):
             return probe.run_cycle(cfg, bool(args.get("keep")), args.get("save"), args.get("steps"), tests)
         if name == "harness_http":
             return probe.http(cfg, args["method"].upper(), args["path"], args.get("body"), timeout=cfg["step_timeout_s"])
+        if name == "harness_restore_mods":
+            if probe.game_running():
+                return {"ok": False, "stage": "precheck", "error": "OxygenNotIncluded.exe is running; close it first"}
+            return probe.mods_json.recover(cfg["mods_dir"], bool(args.get("discard")))
         if name == "harness_fix_mods":
             return probe.mods_json.ensure(cfg["mods_dir"], cfg["required_mods"], fix=True)
         return {"ok": False, "error": "unknown tool " + name}

@@ -8,6 +8,7 @@
     python probe.py run --setup    first-time registration of a new mod: build -> launch (mods.json untouched) -> wait until
                                    ONI has registered the mods in mods.json -> close. Run once before the first normal run
     python probe.py fix-mods       only check/repair mods.json
+    python probe.py restore-mods [--discard]   put back the original mods.json after a run that died or used --keep
     python probe.py http GET /ping call an endpoint of an already running game
 
 Settings come from probe.config.json (git-ignored; see probe.config.example.json).
@@ -151,7 +152,6 @@ def extract_exceptions(log_path, limit=20, max_lines=25):
     return blocks
 
 
-def crash_info(player_log, game_dir, since):
 SAFE_MODE_MARKER = "Entering mod safe mode"
 SAFE_MODE_MESSAGE = ("ONI started in mod safe mode (no mod is loaded, so the harness never answers): the previous start died "
                      "while loading mods. The game is closed and the next start should be normal; run again. If it repeats, "
@@ -165,6 +165,7 @@ def in_safe_mode(player_log):
         return False
 
 
+def crash_info(player_log, game_dir, since):
     """Evidence of a crash: new dump files, mod safe mode, last log lines."""
     info = {}
     dumps = [str(p) for p in Path(game_dir).glob("*.dmp") if p.stat().st_mtime >= since]
@@ -188,6 +189,11 @@ def run_cycle(cfg, keep=False, save=None, steps=None, tests=None):
     try:
         if game_running():
             raise ProbeError("precheck", "OxygenNotIncluded.exe is already running; close it first")
+        left = mods_json.pending(cfg["mods_dir"])
+        if left:
+            raise ProbeError("stale-mods-json", f"an earlier run did not restore mods.json (original saved {left.get('saved_at')} in "
+                                                f"{left['path']}). Run 'probe.py restore-mods' to put the original back, or "
+                                                "'probe.py restore-mods --discard' to keep the current mods.json")
         # Keep only the latest few run folders.
         for old in sorted(cfg["runs_dir"].iterdir())[:-10]:
             shutil.rmtree(old, ignore_errors=True)
@@ -198,7 +204,8 @@ def run_cycle(cfg, keep=False, save=None, steps=None, tests=None):
         result["stage"] = "mods.json"
         # The run needs the harness and the mods under test enabled, but the user's own set must come back afterwards.
         original_mods = mods_json.snapshot(cfg["mods_dir"])
-        mods = mods_json.ensure(cfg["mods_dir"], cfg["required_mods"], cfg.get("exclusive", False), fix=True, dlc_id=cfg.get("dlc_id"))
+        mods_json.save_pending(cfg["mods_dir"], original_mods)  # on disk too, in case this process dies
+        mods =mods_json.ensure(cfg["mods_dir"], cfg["required_mods"], cfg.get("exclusive", False), fix=True, dlc_id=cfg.get("dlc_id"))
         result["mods_json"] = mods
         if not mods["ok"]:
             raise ProbeError("mods.json", "; ".join(mods["remaining"]))
@@ -244,6 +251,9 @@ def run_cycle(cfg, keep=False, save=None, steps=None, tests=None):
                     break
             except (urllib.error.URLError, OSError, ValueError):
                 pass
+            if in_safe_mode(player_log):
+                result["safe_mode"] = True
+                raise ProbeError("safe-mode", SAFE_MODE_MESSAGE)
             time.sleep(1)
         else:
             raise ProbeError("wait-ready", f"no /ping response within {cfg['ready_timeout_s']} s")
@@ -251,9 +261,6 @@ def run_cycle(cfg, keep=False, save=None, steps=None, tests=None):
         result["ping"] = ping["data"]
 
         result["stage"] = "version"
-            if in_safe_mode(player_log):
-                result["safe_mode"] = True
-                raise ProbeError("safe-mode", SAFE_MODE_MESSAGE)
         ver = http(cfg, "GET", "/version")["data"]
         exp_ver, exp_proto = expected_versions()
         result["version"] = ver
@@ -291,6 +298,11 @@ def run_cycle(cfg, keep=False, save=None, steps=None, tests=None):
 
         if tests is not None:
             result["stage"] = "tests"
+            # Project defaults (harness.json): a test run fails on unexpected error logs unless the request says otherwise.
+            tests = dict(tests)
+            for key in ("fail_on_log_errors", "ignore_log_errors"):
+                if key in cfg:
+                    tests.setdefault(key, cfg[key])
             reply = http(cfg, "POST", "/tests/run", tests, timeout=cfg["step_timeout_s"] * 6)
             if not reply.get("ok"):
                 raise ProbeError("tests", f"/tests/run failed: {reply.get('error', {}).get('message')}")
@@ -314,11 +326,6 @@ def run_cycle(cfg, keep=False, save=None, steps=None, tests=None):
         if game_running():
             raise ProbeError("quit", f"game still running {cfg['quit_timeout_s']} s after /quit")
         result.update(ok=True, stage="done")
-            # Project defaults (harness.json): a test run fails on unexpected error logs unless the request says otherwise.
-            tests = dict(tests)
-            for key in ("fail_on_log_errors", "ignore_log_errors"):
-                if key in cfg:
-                    tests.setdefault(key, cfg[key])
     except ProbeError as e:
         result.update(ok=False, stage=e.stage, error=e.message)
     except Exception as e:  # keep the JSON contract even for unexpected failures
@@ -346,9 +353,11 @@ def run_cycle(cfg, keep=False, save=None, steps=None, tests=None):
             else:
                 result["mods_json_restored"] = True
                 result["mods_json_changed_by_game_or_probe"] = mods_json.restore(cfg["mods_dir"], original_mods)
+                mods_json.clear_pending(cfg["mods_dir"])
         elif keep and original_mods is not None:
-            result["mods_json_note"] = "game left running (--keep): mods.json still has the probe's changes; run 'fix-mods' or restore the .probe-backup-* file after quitting"
-        if player_log.exists():
+            result["mods_json_note"] = ("game left running (--keep): mods.json still has the probe's changes. After quitting, run "
+                                        "'probe.py restore-mods' to put the original back (the next run refuses to start until then)")
+        if launched and player_log.exists():  # without a launch this would be a stale log of an earlier run
             shutil.copy2(player_log, run_dir / "Player.log")
             result["player_log"] = str(run_dir / "Player.log")
             # Exceptions matter even when the run itself passed.
@@ -409,6 +418,9 @@ def setup_cycle(cfg):
             missing = expected - registered_ids(cfg["mods_dir"])
             if not missing:
                 break
+            if in_safe_mode(player_log):
+                result["safe_mode"] = True
+                raise ProbeError("safe-mode", SAFE_MODE_MESSAGE)
             if time.time() - started > cfg["ready_timeout_s"]:
                 raise ProbeError("wait-registered", f"not registered in mods.json within {cfg['ready_timeout_s']} s: "
                                                     f"{sorted(missing)} (wrong folder or staticID? is mod_info.yaml in place?)")
@@ -418,9 +430,6 @@ def setup_cycle(cfg):
         # Do not close the game while it is still loading mods (that can leave ONI in mod safe mode): wait until the
         # harness reports the main menu, or, if the harness is not loaded (first time), until Player.log has been quiet.
         result["stage"] = "wait-boot"
-            if in_safe_mode(player_log):
-                result["safe_mode"] = True
-                raise ProbeError("safe-mode", SAFE_MODE_MESSAGE)
         while True:
             if not game_running():
                 raise ProbeError("wait-boot", "game process exited during start-up")
@@ -486,6 +495,8 @@ def main():
     r.add_argument("--tests", nargs="?", const="{}", help="run in-game tests after the steps: a JSON body for /tests/run "
                    "(names/pattern/tags/timeout_s), a pattern string, or nothing for all non-manual tests")
     sub.add_parser("fix-mods")
+    rm = sub.add_parser("restore-mods", help="put back the mods.json saved before a run that never restored it")
+    rm.add_argument("--discard", action="store_true", help="keep the current mods.json and only drop the saved original")
     h = sub.add_parser("http")
     h.add_argument("method")
     h.add_argument("path")
@@ -500,6 +511,10 @@ def main():
             if args.tests is not None:
                 tests = json.loads(args.tests) if args.tests.lstrip().startswith("{") else {"pattern": args.tests}
             out = run_cycle(cfg, args.keep, args.save, json.loads(args.steps) if args.steps else None, tests)
+        elif args.cmd == "restore-mods":
+            if game_running():
+                raise ProbeError("precheck", "OxygenNotIncluded.exe is running; close it first (ONI rewrites mods.json on exit)")
+            out = mods_json.recover(cfg["mods_dir"], args.discard)
         elif args.cmd == "fix-mods":
             out = mods_json.ensure(cfg["mods_dir"], cfg["required_mods"], cfg.get("exclusive", False), fix=True, dlc_id=cfg.get("dlc_id"))
         else:

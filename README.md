@@ -30,6 +30,8 @@ python probe.py run --save X.sav --tests "heater" # id のパターン指定（J
 python probe.py run --keep                        # ゲームを残す（手動確認用）
 python probe.py http GET /status                  # 起動中のゲームの API を直接叩く
 python probe.py fix-mods                          # mods.json の確認・修復のみ
+python probe.py restore-mods                      # 途中で死んだ run / --keep の後に、元の mods.json を戻す（--discard で今のものを残す）
+python probe.py run --project <Mod repo> --setup  # 新しい Mod の初回登録（mods.json に触れずに起動・登録待ち・終了）
 ```
 
 結果は標準出力に JSON で出る（`ok`、`stage`、`error`、`steps`、`tests`、`log_exceptions`、失敗時は `crash`）。終了コードは成功 0 / 失敗 1。
@@ -50,7 +52,9 @@ public static IEnumerator HeaterWarms()
 ```
 
 詳細（戻り値、`Wait`/`Check`、タグ、結果の種類）は `protocol.md` の「In-game tests」を参照。
-検証対象の Mod を `probe.config.json` の `required_mods` に Mod ID で書くと、probe が `mods.json` でそれらを有効にしてから起動する。実行が終わってゲームが終了したら、probe は実行前の `mods.json` を**そのまま書き戻す**（ユーザーの有効 Mod 構成を変えない）。`--keep` のときは書き戻さないので、終了後に `fix-mods` か `mods.json.probe-backup-*` で戻す。
+検証対象の Mod を `probe.config.json` の `required_mods` に Mod ID で書くと、probe が `mods.json` でそれらを有効にしてから起動する。実行が終わってゲームが終了したら、probe は実行前の `mods.json` を**そのまま書き戻す**（ユーザーの有効 Mod 構成を変えない）。`--keep` のときは書き戻さない。
+
+**バックアップ**: probe は `mods.json` を変える前に、元の内容を `mods.json.probe-pending` にディスクへ保存し、書き戻したら消す。probe 自体が落ちた場合や `--keep` のあとは、これが残るので、次の `run` は `stage: stale-mods-json` で止まる。`probe.py restore-mods`（元に戻す）か `restore-mods --discard`（今のファイルを残して保存分を捨てる）で解消する。置き換える前の `mods.json` は `mods.json.probe-backup-*`（直近 5 件）に残る。
 
 **セーフモード**: 起動後にゲームが Mod セーフモードで立ち上がると（直前の起動が読み込み中に死んだ場合）、ハーネスが読み込まれず応答しない。probe はログの `Entering mod safe mode` を見て、タイムアウトを待たずに `stage: safe-mode` で止める（実行前に `mod_load_in_progress` も直す）。
 

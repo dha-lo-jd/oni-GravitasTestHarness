@@ -12,11 +12,17 @@ and leaves ``mod_load_in_progress=true`` behind; ``ensure()`` repairs both.
 Usage:
     python mods_json.py check   [--mods-dir DIR] [--id STATIC_ID ...] [--exclusive] [--dlc-id ID]
     python mods_json.py fix     [same options]   (persists the change: this is how you set the permanent mod set)
+    python mods_json.py restore [--discard]       put back the original saved before a probe run that never got to restore it
+
+Before changing mods.json a probe run saves the original to ``mods.json.probe-pending`` and removes that file once the
+original is back. If it is still there at the next run (the probe died, or ``--keep`` left the game running) the run
+refuses to start until you ``restore`` (original back) or ``restore --discard`` (keep the current file).
 
 Exit code of ``check``: 0 = nothing to fix, 1 = problems found. ``fix`` exits 0 on success.
 Never run while the game is running (ONI rewrites the file on exit).
 """
 import argparse
+import base64
 import json
 import os
 import shutil
@@ -120,6 +126,63 @@ def restore(mods_dir, raw):
     return True
 
 
+PENDING_NAME = "mods.json.probe-pending"
+
+
+def _pending_path(mods_dir):
+    return Path(mods_dir) / PENDING_NAME
+
+
+def save_pending(mods_dir, raw):
+    """Write the user's original mods.json to disk BEFORE the probe changes it, so a probe that dies still leaves it recoverable."""
+    if raw is None:
+        return
+    _pending_path(mods_dir).write_text(json.dumps({
+        "saved_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "original_b64": base64.b64encode(raw).decode("ascii"),
+    }, indent=2), encoding="utf-8")
+
+
+def pending(mods_dir):
+    """Info about an original that was never restored (a probe run died or --keep left the game running), or None."""
+    p = _pending_path(mods_dir)
+    if not p.exists():
+        return None
+    try:
+        info = json.loads(p.read_text(encoding="utf-8"))
+        return {"saved_at": info.get("saved_at"), "path": str(p), "original_size": len(base64.b64decode(info["original_b64"]))}
+    except (OSError, ValueError, KeyError):
+        return {"saved_at": None, "path": str(p), "unreadable": True}
+
+
+def clear_pending(mods_dir):
+    _pending_path(mods_dir).unlink(missing_ok=True)
+
+
+def recover(mods_dir, discard=False):
+    """Restore the original saved by ``save_pending`` over the current mods.json (the game must not be running), or with
+    ``discard`` keep the current file and only drop the saved copy. Returns a dict for JSON output."""
+    p = _pending_path(mods_dir)
+    if not p.exists():
+        return {"ok": True, "note": "nothing to recover"}
+    if discard:
+        saved = p.with_name(f"mods.json.probe-discarded-{time.strftime('%Y%m%d-%H%M%S')}")
+        p.rename(saved)
+        _prune_backups(p.parent, pattern="mods.json.probe-discarded-*")
+        return {"ok": True, "discarded": True, "kept_copy": str(saved)}
+    try:
+        raw = base64.b64decode(json.loads(p.read_text(encoding="utf-8"))["original_b64"])
+    except (OSError, ValueError, KeyError) as e:
+        return {"ok": False, "error": f"cannot read {p}: {e}"}
+    path = mods_json_path(mods_dir)
+    if path.exists():
+        shutil.copy2(path, path.with_name(f"mods.json.probe-backup-{time.strftime('%Y%m%d-%H%M%S')}"))  # what is being replaced
+    path.write_bytes(raw)
+    p.unlink()
+    _prune_backups(path.parent)
+    return {"ok": True, "restored": str(path)}
+
+
 def ensure(mods_dir, required_ids, exclusive=False, fix=True, dlc_id=None):
     """Check (and optionally repair) mods.json. Returns a dict suitable for JSON output."""
     path = mods_json_path(mods_dir)
@@ -144,15 +207,16 @@ def ensure(mods_dir, required_ids, exclusive=False, fix=True, dlc_id=None):
             "remaining": remaining, "fixed": fixed}
 
 
-def _prune_backups(directory, keep=5):
-    backups = sorted(directory.glob("mods.json.probe-backup-*"))
+def _prune_backups(directory, keep=5, pattern="mods.json.probe-backup-*"):
+    backups = sorted(directory.glob(pattern))
     for old in backups[:-keep]:
         old.unlink()
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("command", choices=["check", "fix"])
+    ap.add_argument("command", choices=["check", "fix", "restore"])
+    ap.add_argument("--discard", action="store_true", help="restore: keep the current mods.json and only drop the saved original")
     ap.add_argument("--mods-dir", default=os.environ.get("ONI_MODS_DIR"),
                     help="ONI mods directory containing mods.json (default: $ONI_MODS_DIR)")
     ap.add_argument("--id", action="append", default=[], help="staticID that must be enabled (repeatable)")
@@ -161,6 +225,10 @@ def main(argv=None):
     args = ap.parse_args(argv)
     if not args.mods_dir:
         ap.error("--mods-dir or ONI_MODS_DIR is required")
+    if args.command == "restore":
+        result = recover(args.mods_dir, args.discard)
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0 if result["ok"] else 1
     result = ensure(args.mods_dir, args.id, args.exclusive, fix=args.command == "fix", dlc_id=args.dlc_id)
     print(json.dumps(result, indent=2, ensure_ascii=False))
     if args.command == "check":
