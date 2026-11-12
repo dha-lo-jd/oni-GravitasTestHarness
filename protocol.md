@@ -118,4 +118,25 @@ public static IEnumerator HeaterWarms()
   - Only lines logged while a test runs are counted. Errors at game start-up are in the probe's `log_exceptions`.
 - The probe: `python probe.py run --save X.sav --tests` (all), `--tests "pattern"` or `--tests '{"tags":["heat"]}'`. A failed/errored test
   fails the run (`stage: "tests"`), and the full results stay in `result.json`.
+### Arranging game state (`Arrange`, `Find`)
+
+Tests can build their own scene instead of relying on a hand-made save (needs the `Gravitas.TestHarness.dll` reference). They do what the
+in-game sandbox tools do:
+
+| Call | Does |
+|---|---|
+| `Arrange.HomeCell()` | A cell in the starting area (printing pod, else first duplicant) |
+| `Arrange.Cell(x, y)` / `CellOf(go)` / `XY(cell)` | Cell <-> coordinates |
+| `Arrange.FindBuildableCell(prefabId, near, radius)` | A free cell where the building fits now, or -1 |
+| `Arrange.Build(prefabId, cell, orientation, elements)` | Instantly places a completed building |
+| `Arrange.SpawnElement(SimHashes, cell, mass, temp)` | An element chunk |
+| `Arrange.Spawn(prefabId, cell)` | An item or creature prefab |
+| `Arrange.SpawnDuplicant(cell)` | A random duplicant |
+| `Arrange.SetElement(cell, element, mass, temp)` | Replaces the cell's element (applies on the next simulation step) |
+| `Arrange.Destroy(go)` | Removes an object |
+| `Find.Buildings(prefabId)` / `Duplicants()` / `ElementAt` / `TemperatureAt` / `MassAt` | Lookups |
+
+A setup that cannot be done throws `InvalidOperationException` (status `error`). A new object is registered with the game's lists one frame
+later: `yield return null` before `Find.*`. Objects a test creates stay in the game for the following tests: destroy them at the end.
+
 - `Gravitas.TestHarness/SelfTests.cs` has the harness's own tests (tag `selftest`) and failing demos (tag `manual,demo`).

@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using Gravitas.TestHarness.Core;
 
@@ -27,6 +28,55 @@ internal static class SelfTests
     public static void CheckThrows()
     {
         Check.Throws<HarnessAssertionException>(() => Check.Equal(1, 2));
+    }
+
+    [HarnessTest(Name = "harness.arrange_build", Tags = "selftest")]
+    public static IEnumerator ArrangeBuild()
+    {
+        var cell = Arrange.FindBuildableCell("Ladder", Arrange.HomeCell());
+        Check.True(cell >= 0, "a free cell for a ladder near the start");
+        var before = Find.Buildings("Ladder").Count;
+        var ladder = Arrange.Build("Ladder", cell);
+        Check.NotNull(ladder);
+        Check.Equal(cell, Arrange.CellOf(ladder), "built where asked");
+        yield return null; // the game registers a new object (OnSpawn) one frame later
+        Check.Equal(before + 1, Find.Buildings("Ladder").Count, "found among completed buildings");
+        yield return Wait.Ticks(2);
+        Arrange.Destroy(ladder);
+        yield return Wait.Ticks(2);
+        Check.Equal(before, Find.Buildings("Ladder").Count, "removed again");
+        Check.Throws<InvalidOperationException>(() => Arrange.Build("NoSuchBuilding", cell));
+    }
+
+    [HarnessTest(Name = "harness.arrange_spawn", Tags = "selftest")]
+    public static IEnumerator ArrangeSpawn()
+    {
+        var first = Find.Duplicants();
+        var home = Arrange.HomeCell();
+
+        var dupe = Arrange.SpawnDuplicant(home);
+        yield return Wait.Ticks(2);
+        Check.Equal(first.Count + 1, Find.Duplicants().Count, "one more duplicant");
+        Arrange.Destroy(dupe);
+
+        var chunk = Arrange.SpawnElement(SimHashes.Copper, home, 123f);
+        yield return Wait.Ticks(1);
+        Check.Near(123.0, chunk.GetComponent<PrimaryElement>().Mass, 1.0, "chunk mass");
+        Check.Equal(SimHashes.Copper, chunk.GetComponent<PrimaryElement>().ElementID);
+        Arrange.Destroy(chunk);
+    }
+
+    [HarnessTest(Name = "harness.arrange_element", Tags = "selftest")]
+    public static IEnumerator ArrangeElement()
+    {
+        var cell = Arrange.FindBuildableCell("Ladder", Arrange.HomeCell());
+        Check.True(cell >= 0);
+        Arrange.SetElement(cell, SimHashes.Granite, 500f, 300f); // a solid stays put (a liquid would flow away)
+        yield return Wait.Ticks(2);
+        Check.Equal(SimHashes.Granite, Find.ElementAt(cell), "the cell holds granite now");
+        Check.AtLeast(1.0, Find.MassAt(cell), "mass is reported");
+        Arrange.SetElement(cell, SimHashes.Vacuum, 0f, 0f);
+        yield return Wait.Ticks(2);
     }
 
     [HarnessTest(Name = "harness.log_errors", Tags = "selftest", RequiresGame = false)]
