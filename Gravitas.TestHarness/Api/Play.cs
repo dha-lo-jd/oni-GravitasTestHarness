@@ -13,15 +13,15 @@ namespace Gravitas.TestHarness;
 /// <c>OnMouseMove</c>, the UI <c>IPointerClickHandler</c>), so a mod's patches on those run as they would for the player.
 /// For the map it moves the camera over the cells and locks the game's mouse position
 /// (<c>KInputManager.GetMousePos()</c>) on the cell, so "the object under the cursor" is what a player would get. What it does NOT do:
-/// it does not move the OS cursor or press real keys, so anything that reads <c>Input.mousePosition</c> or <c>Input.GetKey</c>
-/// directly (key-modified drags such as straight-line drag) sees the real, idle input.
+/// it does not move the OS cursor, so anything that reads <c>Input.mousePosition</c> or <c>Input.GetKey</c>
+/// directly (key-modified drags such as straight-line drag) sees the real, idle input. Keys, the wheel and hover are in PlayKeys.cs.
 /// <para>
 /// The game ignores clicks while its window has no focus (<c>KInputManager.isFocused</c>); an automated run often has none, so
 /// every call here lets the game believe it has focus while the call runs. Failures to find a tool, button or cell throw
 /// <see cref="InvalidOperationException"/> (the test is reported as "error", not "failed").
 /// </para>
 /// </summary>
-public static class Play
+public static partial class Play
 {
     private static readonly FieldInfo HasFocusField = typeof(KInputManager).GetField("hasFocus", BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
 

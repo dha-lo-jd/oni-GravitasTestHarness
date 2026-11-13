@@ -84,6 +84,37 @@ internal static class Endpoints
             Play.Click(ToCell(Require(body, "cell")));
             return new { active_tool = Play.ActiveTool != null ? Play.ActiveTool.GetType().Name : null };
         });
+        // Body: {"key": "Escape", "modifier": "Ctrl|Shift|Alt (optional)", "down": true|false (optional: only that half)} presses a key by
+        // its KKeyCode name; {"action": "Dig"} presses the key bound to that game action. Only keys with a binding do anything.
+        server.Map("POST", "/input/key", body =>
+        {
+            var modifier = body?["modifier"] != null ? (Modifier)System.Enum.Parse(typeof(Modifier), (string)body["modifier"], true) : Modifier.None;
+            if (body?["action"] != null)
+            {
+                Play.Press((Action)System.Enum.Parse(typeof(Action), (string)body["action"], true));
+            }
+            else
+            {
+                var key = (KKeyCode)System.Enum.Parse(typeof(KKeyCode), (string)Require(body, "key"), true);
+                if (body?["down"] == null) Play.Press(key, modifier);
+                else if ((bool)body["down"]) Play.KeyDown(key, modifier);
+                else Play.KeyUp(key, modifier);
+            }
+            return new { active_tool = Play.ActiveTool != null ? Play.ActiveTool.GetType().Name : null };
+        });
+        // Body: {"notches": 3} mouse wheel up (zoom in), negative down.
+        server.Map("POST", "/input/scroll", body =>
+        {
+            Play.Scroll((int)Require(body, "notches"));
+            return new { zoom_target = CameraController.Instance.targetOrthographicSize };
+        });
+        // Body: {"cell": cell} holds the pointer over the cell until {"release": true}.
+        server.Map("POST", "/input/hover", body =>
+        {
+            if (body?["release"] != null && (bool)body["release"]) Play.ReleaseMouse();
+            else Play.Hover(ToCell(Require(body, "cell")));
+            return new { pointer_held = KInputManager.isMousePosLocked };
+        });
         // Body: {"name": "<UI object name>"}: lists the active UI objects with that exact name (path and screen state).
         server.Map("POST", "/ui/find", body => new
         {

@@ -41,6 +41,9 @@ HTTP status: 200 ok, 404 unknown path, 405 wrong method, 500 handler exception.
 | `POST /input/tool` | `{"tool":"DigTool"}` (activate by C# type name) or `{"button":"DigTool"}` (click its toolbar button) | `active_tool` |
 | `POST /input/drag` | `{"from":cell,"to":cell,"tool":"optional type name"}`; a cell is its index or `{"x":X,"y":Y}` | `active_tool` |
 | `POST /input/click` | `{"cell":cell,"tool":"optional type name"}` | `active_tool` |
+| `POST /input/key` | `{"key":"Escape"}` (a `KKeyCode` name; optional `"modifier":"Ctrl"` and `"down":true/false` for only one half) or `{"action":"Dig"}` (the key bound to that game `Action`) | `active_tool`. The call returns after the game has handled the key |
+| `POST /input/scroll` | `{"notches":3}` mouse wheel (positive up = zoom in, negative down) | `zoom_target` |
+| `POST /input/hover` | `{"cell":cell}` holds the pointer over a cell; `{"release":true}` gives it back | `pointer_held` |
 | `POST /ui/find` | `{"name":"<UI object name>"}` | `matches[]`: hierarchy paths of the active UI objects with that exact name |
 | `POST /ui/click` | `{"name":"<UI object name>"}` (exactly one match, else an error) | `clicked` |
 | `POST /quit` | – | `{"quitting": true}`; the game exits right after the reply |
@@ -144,13 +147,13 @@ in-game sandbox tools do:
 A setup that cannot be done throws `InvalidOperationException` (status `error`). A new object is registered with the game's lists one frame
 later: `yield return null` before `Find.*`. Objects a test creates stay in the game for the following tests: destroy them at the end.
 
-### Playing the player's input (`Play`, since 0.8.0)
+### Playing the player's input (`Play`, since 0.8.0; keys, wheel and hover since 0.9.0)
 
 A test can do what a player does with the mouse (the HTTP endpoints `/input/*` and `/ui/*` call the same code). `Play` calls the entry
 points the game itself calls for a real mouse (`InterfaceTool.OnLeftClickDown/Up`, `OnMouseMove`, the UI pointer click), so a mod's
 patches run as they do for a player. For the map it moves the camera over the cells and locks the game's mouse position
 (`KInputManager.GetMousePos()`) on the cell, so "the object under the cursor" is right; and it lets the game believe its window has focus
-(the game ignores clicks otherwise). It does not move the OS cursor or press keys: code that reads `Input.mousePosition` / `Input.GetKey`
+(the game ignores clicks otherwise). It does not move the OS cursor: code that reads `Input.mousePosition` / `Input.GetKey`
 directly sees the idle real input. The class is `Play` because the game has its own global `Sim` and `Player`.
 
 | Call | Does |
@@ -162,8 +165,16 @@ directly sees the idle real input. The class is `Play` because the game has its 
 | `Play.Click(cell)` | Press and release on the cell with the active tool |
 | `Play.FindUi(name, root)` / `ClickUi(name, root)` / `ClickUi(go)` | Find active UI objects by exact name (under `root` if given) and left-click one (handed up to the first parent that handles a click). The game's own UI reuses names such as "Row" and "Button": scope to your own screen |
 | `Play.FrameCells(cells)` / `WorldPos(cell)` | The camera framing used by Drag/Click; a cell's centre |
+| `Play.Press(KKeyCode, Modifier)` / `Press(Action)` | Press and release a key, or the key bound to a game action, through the game's own input path (`KInputController` → `KInputHandler` → screens and tools, so `OnKeyDown` patches run). The game's dispatch has run when the call returns, and an exception in a handler comes out of the call. Only keys with a binding do anything (as for a player): an unbound key throws. `KeyDown` / `KeyUp` hold a key; `KeyFor(action)` tells which key |
+| `Play.Scroll(notches)` | Mouse wheel notches (positive up = zoom in) |
+| `Play.Hover(cell)` / `ReleaseMouse()` | Holds the pointer over a cell until released (the camera is moved to it); the hover card and the active tool's hover follow in the next frames (`yield return null`). Always pair it with `ReleaseMouse` (use `finally`) |
+| `Play.HoverUi(go)` / `UnhoverUi(go)` | The pointer enters / leaves a UI object (tooltips, hover effects) |
 
-A tool, button or cell that cannot be found throws `InvalidOperationException` (status `error`). Not covered: key presses, mouse wheel, hover texts,
-drag modifiers (straight-line drag), anything read from `Input` directly.
+A tool, button or cell that cannot be found throws `InvalidOperationException` (status `error`). Not covered: modifier-held mouse actions
+(straight-line drag), anything read from `Input` directly (`Input.GetKey`, `Input.mousePosition`). Keys that the game reads through its action
+bindings (almost everything: hotkeys, Esc, zoom) are covered.
+
+After an error has been logged the game disables its screen input (its crash dialog) and stops following the pointer, so `Press` throws
+rather than being silently ignored. A test that logs an error on purpose must be the last one to run (the harness's own `zz_log_errors` is).
 
 - `Gravitas.TestHarness/SelfTests.cs` has the harness's own tests (tag `selftest`) and failing demos (tag `manual,demo`).

@@ -124,14 +124,79 @@ internal static class SelfTests
         Play.Click(cell);
         yield return null;
         Check.NotNull(SelectTool.Instance.selected, "a click on the ladder selects something");
-        Check.Equal(ladder, SelectTool.Instance.selected.gameObject, "the ladder is what is selected");
+        Check.Equal(cell, Grid.PosToCell(SelectTool.Instance.selected.transform.GetPosition()), "what is selected is at the click (" + SelectTool.Instance.selected.name + ")");
         SelectTool.Instance.Select(null);
         Arrange.Destroy(ladder);
         yield return Wait.Ticks(2);
     }
 
-    [HarnessTest(Name = "harness.log_errors", Tags = "selftest", RequiresGame = false)]
-    public static void LogErrors()
+    [HarnessTest(Name = "harness.sim_key_escape", Tags = "selftest")]
+    public static IEnumerator SimKeyEscape()
+    {
+        yield return Wait.Ticks(2);
+        Play.ClearTool();
+        Play.Activate(Play.FindTool("DigTool"));
+        Check.Equal("DigTool", Play.ActiveTool.GetType().Name);
+        Play.Press(KKeyCode.Escape); // ToolMenu.OnKeyDown: back to the select tool
+        Check.Equal("SelectTool", Play.ActiveTool.GetType().Name, "Esc leaves the tool");
+        Check.Throws<System.InvalidOperationException>(() => Play.Press(KKeyCode.F15)); // an unbound key is refused
+    }
+
+    [HarnessTest(Name = "harness.sim_key_action", Tags = "selftest")]
+    public static IEnumerator SimKeyAction()
+    {
+        yield return Wait.Ticks(2);
+        Play.ClearTool();
+        Play.Press(Action.Dig); // the dig hotkey picks the dig tool through the toolbar
+        Check.Equal("DigTool", Play.ActiveTool.GetType().Name, "the dig hotkey activates the dig tool");
+        Play.ClearTool();
+        Check.Equal("SelectTool", Play.ActiveTool.GetType().Name);
+    }
+
+    [HarnessTest(Name = "harness.sim_scroll", Tags = "selftest")]
+    public static IEnumerator SimScroll()
+    {
+        var camera = CameraController.Instance;
+        var before = camera.targetOrthographicSize;
+        Play.Scroll(-3);
+        Check.True(camera.targetOrthographicSize > before, "scrolling down zooms out (" + before + " -> " + camera.targetOrthographicSize + ")");
+        var mid = camera.targetOrthographicSize;
+        Play.Scroll(3);
+        Check.True(camera.targetOrthographicSize < mid, "scrolling up zooms in");
+        yield return null;
+    }
+
+    [HarnessTest(Name = "harness.sim_hover", Tags = "selftest")]
+    public static IEnumerator SimHover()
+    {
+        var cell = Arrange.FindBuildableCell("Ladder", Arrange.HomeCell());
+        Check.True(cell >= 0);
+        var ladder = Arrange.Build("Ladder", cell);
+        yield return Wait.Ticks(2);
+        Play.ClearTool();
+        try
+        {
+            Play.Hover(cell);
+            yield return null;
+            yield return null;
+            Check.True(KInputManager.isMousePosLocked, "the pointer is held on the cell");
+            Check.NotNull(SelectTool.Instance.hover, "the select tool hovers something");
+            var hovered = SelectTool.Instance.hover.gameObject;
+            Check.Equal(cell, Grid.PosToCell(hovered.transform.GetPosition()), "what is hovered is at the pointer (" + hovered.name + ")");
+        }
+        finally
+        {
+            Play.ReleaseMouse();
+            Arrange.Destroy(ladder);
+        }
+        Check.False(KInputManager.isMousePosLocked, "the pointer is released");
+        yield return Wait.Ticks(2);
+    }
+
+    // Named to run after the others (tests run in name order): an error log puts the game into its crash-dialog state, in which it
+    // ignores keys and the pointer, which would break the input tests that run after it.
+    [HarnessTest(Name = "harness.zz_log_errors", Tags = "selftest", RequiresGame = false)]
+    public static IEnumerator LogErrors()
     {
         Check.NoLogErrors();
         UnityEngine.Debug.LogError("harness-selftest: intentional error log");
@@ -139,6 +204,11 @@ internal static class SelfTests
         Check.ExpectLogError("intentional error log");
         Check.NoLogErrors(); // consumed, so it no longer counts
         Check.Throws<HarnessAssertionException>(() => Check.ExpectLogError("never logged"));
+        // Logging an error makes the game disable its screen input (its crash dialog, a frame or two later); give it back for the tests that follow.
+        yield return null;
+        yield return null;
+        yield return null;
+        KScreenManager.Instance?.DisableInput(false);
     }
 
     // Passes by itself; with "fail_on_log_errors": true in the run it is reported as failed.

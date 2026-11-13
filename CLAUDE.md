@@ -20,6 +20,7 @@ ONI 実機検証ハーネス。概要と使い方は `README.md`、API の正本
 - probe は実行前の `mods.json` を保存して（メモリと `mods.json.probe-pending`）、終了後に書き戻す。probe が死んだ・`--keep` のあとは、次の `run` が `stale-mods-json` で止まるので `probe.py restore-mods`（または `--discard`）。恒久的な構成を変えるときだけ `python mods_json.py fix --mods-dir <mods> --id <ID> --exclusive` を使う（ゲーム停止中のみ）。
 - 新しい Mod の DLL を初めて置くときは、ゲームがそれを認識して `mods.json` に登録する**前**に `mods.json` を書き換えてはいけない（未認識の Mod のエントリがあると起動中にクラッシュする）。順序は DLL 配置 → `probe.py run --project <Mod repo> --setup`（`mods.json` に触れずに起動・登録待ち・終了）→ 通常の probe。通常の `run` はエントリを追加できない（`README.md`「初回セットアップの順序」）。
 - ONI にはグローバルな `Action` enum がある。デリゲートは必ず `System.Action`、時刻は `System.DateTime`。同様に `Sim`、`Player`、`EventSystem`（UnityEngine.EventSystems のものとは別）もゲーム側にある。ハーネスの入力再現クラスを `Play` と呼ぶのはこのため。
+- エラーをログに出す（`Debug.LogError`）と、ゲームはクラッシュダイアログの状態に入り、画面へのキー入力を止めてポインタにも追従しなくなる（`KScreenManager` の `inputDisabled`）。`Play.Press` はこのとき例外で教える。わざとエラーを出すテストは最後に走らせる（自己テストは `zz_log_errors`）。
 - `UserMod2.OnLoad` の基底がすでに Harmony の `PatchAll` を実行する。もう一度呼ぶとパッチが二重に当たる。
 - ゲームのメインスレッド以外から Unity API に触れない。HTTP ハンドラは `MainThreadDispatcher` 経由でメインスレッドで動く。待つ必要がある応答は `Pending` を返す。
 - ゲームのコードを調べるときは `ilspycmd` で `Assembly-CSharp.dll` を逆コンパイルする。private なメンバーは `Reflect` 経由（`GenericGameSettings.disableGameOver` など）。
