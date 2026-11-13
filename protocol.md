@@ -38,6 +38,11 @@ HTTP status: 200 ok, 404 unknown path, 405 wrong method, 500 handler exception.
 | `GET /tests` | – | `count`, `tests[]` (`id`, `tags`, `requires_game`, `timeout_s`, `invalid`) |
 | `POST /tests/run` | `{"names":[..],"pattern":"..","tags":[..],"timeout_s":N,"fail_on_log_errors":bool,"ignore_log_errors":[regex..]}` (all optional) | `total`, `passed`, `failed`, `errors`, `skipped`, `duration_ms`, `results[]`. Replies when every selected test is done |
 | `POST /invoke` | `{"method":"Ns.Type.StaticMethod","args":[..]}` or `{"target":"Game.Instance","method":"Name","args":[..]}` | `method`, `result` (JSON as in /query) |
+| `POST /input/tool` | `{"tool":"DigTool"}` (activate by C# type name) or `{"button":"DigTool"}` (click its toolbar button) | `active_tool` |
+| `POST /input/drag` | `{"from":cell,"to":cell,"tool":"optional type name"}`; a cell is its index or `{"x":X,"y":Y}` | `active_tool` |
+| `POST /input/click` | `{"cell":cell,"tool":"optional type name"}` | `active_tool` |
+| `POST /ui/find` | `{"name":"<UI object name>"}` | `matches[]`: hierarchy paths of the active UI objects with that exact name |
+| `POST /ui/click` | `{"name":"<UI object name>"}` (exactly one match, else an error) | `clicked` |
 | `POST /quit` | – | `{"quitting": true}`; the game exits right after the reply |
 
 Units: seconds are game seconds, a cycle is 600 s, a tick is 0.2 s (one 200 ms sim step). Advance stops within one 33 ms sim step of the target, so `elapsed_seconds` can exceed the request slightly. Never assert exact equality.
@@ -138,5 +143,27 @@ in-game sandbox tools do:
 
 A setup that cannot be done throws `InvalidOperationException` (status `error`). A new object is registered with the game's lists one frame
 later: `yield return null` before `Find.*`. Objects a test creates stay in the game for the following tests: destroy them at the end.
+
+### Playing the player's input (`Play`, since 0.8.0)
+
+A test can do what a player does with the mouse (the HTTP endpoints `/input/*` and `/ui/*` call the same code). `Play` calls the entry
+points the game itself calls for a real mouse (`InterfaceTool.OnLeftClickDown/Up`, `OnMouseMove`, the UI pointer click), so a mod's
+patches run as they do for a player. For the map it moves the camera over the cells and locks the game's mouse position
+(`KInputManager.GetMousePos()`) on the cell, so "the object under the cursor" is right; and it lets the game believe its window has focus
+(the game ignores clicks otherwise). It does not move the OS cursor or press keys: code that reads `Input.mousePosition` / `Input.GetKey`
+directly sees the idle real input. The class is `Play` because the game has its own global `Sim` and `Player`.
+
+| Call | Does |
+|---|---|
+| `Play.ClickToolButton(toolName)` | Makes the tool active by clicking its toolbar button (collection button first, like a player); nothing if it is already active |
+| `Play.Activate(tool)` / `FindTool("CensusTool")` / `ActiveTool` | Switch tools without the toolbar; look a tool up by type name |
+| `Play.ClearTool()` | Leave tool mode like Esc (the toolbar forgets its selection too). Use it for cleanup: `Activate` alone leaves the toolbar "selected", and the next button click would then deselect |
+| `Play.Drag(fromCell, toCell)` / `Drag(tool, from, to)` | Move, press at `from`, move, release at `to` with the active (or given) tool |
+| `Play.Click(cell)` | Press and release on the cell with the active tool |
+| `Play.FindUi(name, root)` / `ClickUi(name, root)` / `ClickUi(go)` | Find active UI objects by exact name (under `root` if given) and left-click one (handed up to the first parent that handles a click). The game's own UI reuses names such as "Row" and "Button": scope to your own screen |
+| `Play.FrameCells(cells)` / `WorldPos(cell)` | The camera framing used by Drag/Click; a cell's centre |
+
+A tool, button or cell that cannot be found throws `InvalidOperationException` (status `error`). Not covered: key presses, mouse wheel, hover texts,
+drag modifiers (straight-line drag), anything read from `Input` directly.
 
 - `Gravitas.TestHarness/SelfTests.cs` has the harness's own tests (tag `selftest`) and failing demos (tag `manual,demo`).

@@ -1,3 +1,4 @@
+using System.Linq;
 using Gravitas.TestHarness.Core;
 using Newtonsoft.Json.Linq;
 using UnityEngine;
@@ -61,8 +62,49 @@ internal static class Endpoints
         server.Map("POST", "/tests/run", TestRunner.Run);
         server.Map("POST", "/invoke", Invoke.Run);
 
+        // Player input (see Api/Play.cs). A cell is a number (the cell index) or {"x": X, "y": Y}.
+        // Body: {"tool": "DigTool"} activates a tool by its type name; {"button": "DigTool"} clicks its toolbar button instead.
+        server.Map("POST", "/input/tool", body =>
+        {
+            if (body?["button"] != null) Play.ClickToolButton((string)body["button"]);
+            else Play.Activate(Play.FindTool((string)Require(body, "tool")));
+            return new { active_tool = Play.ActiveTool != null ? Play.ActiveTool.GetType().Name : null };
+        });
+        // Body: {"from": cell, "to": cell, "tool": "optional type name"}. Press at from, release at to, with the active (or named) tool.
+        server.Map("POST", "/input/drag", body =>
+        {
+            if (body?["tool"] != null) Play.Activate(Play.FindTool((string)body["tool"]));
+            Play.Drag(ToCell(Require(body, "from")), ToCell(Require(body, "to")));
+            return new { active_tool = Play.ActiveTool != null ? Play.ActiveTool.GetType().Name : null };
+        });
+        // Body: {"cell": cell, "tool": "optional type name"}.
+        server.Map("POST", "/input/click", body =>
+        {
+            if (body?["tool"] != null) Play.Activate(Play.FindTool((string)body["tool"]));
+            Play.Click(ToCell(Require(body, "cell")));
+            return new { active_tool = Play.ActiveTool != null ? Play.ActiveTool.GetType().Name : null };
+        });
+        // Body: {"name": "<UI object name>"}: lists the active UI objects with that exact name (path and screen state).
+        server.Map("POST", "/ui/find", body => new
+        {
+            matches = Play.FindUi((string)Require(body, "name")).Select(g => Play.PathOf(g)).ToList(),
+        });
+        // Body: {"name": "<UI object name>"}: left-clicks the one active UI object with that name (zero or several: error).
+        server.Map("POST", "/ui/click", body =>
+        {
+            Play.ClickUi((string)Require(body, "name"));
+            return new { clicked = (string)body["name"] };
+        });
+
         // Responds first, then quits on the next main-thread tick.
         server.Map("POST", "/quit", _ => new { quitting = true }, Application.Quit);
+    }
+
+    private static int ToCell(JToken spec)
+    {
+        if (spec.Type == JTokenType.Integer) return (int)spec;
+        if (spec is JObject o && o["x"] != null && o["y"] != null) return Arrange.Cell((int)o["x"], (int)o["y"]);
+        throw new System.ArgumentException("a cell is a number or {\"x\": X, \"y\": Y}");
     }
 
     private static JToken Require(JObject body, string name)

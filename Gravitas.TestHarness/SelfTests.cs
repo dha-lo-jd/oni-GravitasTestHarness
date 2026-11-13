@@ -79,6 +79,57 @@ internal static class SelfTests
         yield return Wait.Ticks(2);
     }
 
+    [HarnessTest(Name = "harness.sim_toolbar_button", Tags = "selftest")]
+    public static void SimToolbarButton()
+    {
+        Play.ClickToolButton("DigTool");
+        Check.Equal("DigTool", Play.ActiveTool.GetType().Name, "clicking the dig button makes the dig tool active");
+        Play.ClearTool();
+        Check.Equal("SelectTool", Play.ActiveTool.GetType().Name, "back to the select tool");
+        Play.ClickToolButton("DigTool"); // the toolbar must be usable again after ClearTool
+        Check.Equal("DigTool", Play.ActiveTool.GetType().Name, "the dig tool again");
+        Play.ClearTool();
+        Check.Throws<InvalidOperationException>(() => Play.ClickToolButton("NoSuchTool"));
+    }
+
+    [HarnessTest(Name = "harness.sim_drag", Tags = "selftest")]
+    public static IEnumerator SimDrag()
+    {
+        // The sandbox save has no rock: make a granite cell (a free, visible one) and dig it by dragging the dig tool over it.
+        var cell = Arrange.FindBuildableCell("Ladder", Arrange.HomeCell());
+        Check.True(cell >= 0 && Grid.IsVisible(cell), "a free, visible cell near the start");
+        Arrange.SetElement(cell, SimHashes.Granite, 500f, 300f);
+        yield return Wait.Ticks(2);
+        Check.True(Grid.Solid[cell], "the cell is solid now");
+        Check.True(Grid.Objects[cell, (int)ObjectLayer.DigPlacer] == null, "no dig order yet");
+        Play.Drag(Play.FindTool("DigTool"), cell, cell);
+        yield return null;
+        var order = Grid.Objects[cell, (int)ObjectLayer.DigPlacer];
+        Check.NotNull(order, "dragging the dig tool over the cell places a dig order");
+        UnityEngine.Object.Destroy(order);
+        Play.Activate(SelectTool.Instance);
+        Arrange.SetElement(cell, SimHashes.Vacuum, 0f, 0f);
+        yield return Wait.Ticks(2);
+    }
+
+    [HarnessTest(Name = "harness.sim_click_selects", Tags = "selftest")]
+    public static IEnumerator SimClickSelects()
+    {
+        var cell = Arrange.FindBuildableCell("Ladder", Arrange.HomeCell());
+        Check.True(cell >= 0);
+        var ladder = Arrange.Build("Ladder", cell);
+        yield return Wait.Ticks(2);
+        Play.Activate(SelectTool.Instance);
+        SelectTool.Instance.Select(null);
+        Play.Click(cell);
+        yield return null;
+        Check.NotNull(SelectTool.Instance.selected, "a click on the ladder selects something");
+        Check.Equal(ladder, SelectTool.Instance.selected.gameObject, "the ladder is what is selected");
+        SelectTool.Instance.Select(null);
+        Arrange.Destroy(ladder);
+        yield return Wait.Ticks(2);
+    }
+
     [HarnessTest(Name = "harness.log_errors", Tags = "selftest", RequiresGame = false)]
     public static void LogErrors()
     {

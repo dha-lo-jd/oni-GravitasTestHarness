@@ -34,6 +34,9 @@ python probe.py restore-mods                      # 途中で死んだ run / --k
 python probe.py run --project <Mod repo> --setup  # 新しい Mod の初回登録（mods.json に触れずに起動・登録待ち・終了）
 ```
 
+`run` に `--summary` を付けると、JSON の代わりに短い文章（合否、失敗したテストと理由、ログの例外数、`run_dir`）を出す。JSON は `runs/<日時>/result.json` に残る。
+`--project` は複数回指定できる（`--project A --project B`）。ビルドと `required_mods` は合算され、セーブとポートと成果物の場所は最初に指定した Mod のものが使われる。複数の Mod を同時に有効にしたときの干渉を確かめるときに使う（`--tests '{"tags":["a","b"]}'` で両方のテストを選ぶ）。
+
 結果は標準出力に JSON で出る（`ok`、`stage`、`error`、`steps`、`tests`、`log_exceptions`、失敗時は `crash`）。終了コードは成功 0 / 失敗 1。
 成果物は `Gravitas.TestProbe/runs/<日時>/`（`result.json`、`Player.log`、`build.log`、`screenshots/`）に残り、直近 10 回分を保持する。
 
@@ -100,6 +103,7 @@ python <このrepo>/Gravitas.TestProbe/probe.py run --project <Mod repo> --tests
 `--tests` は、そのとき読み込まれている全テスト（ハーネスの自己テスト `harness.*` を含む）を実行する。自分のテストだけなら `--tests '{"tags":["mymod"]}'` のようにタグで絞る。
 
 - **エラーログをテストの合否にする**: `Check.NoLogErrors()` / `Check.ExpectLogError(regex)`、または実行オプション `"fail_on_log_errors": true`（`--tests '{"fail_on_log_errors":true}'`、`harness.json` に書けば既定になる。ゲームの既知のノイズは `"ignore_log_errors": ["正規表現"]`）。テスト中に出たエラー/例外ログがあると、通っていたテストが `failed` になる。意図的にエラーを出すテストは `[HarnessTest(AllowLogErrors = true)]`。
+- **プレイヤーの操作を再現する**（0.8.0〜）: `Play.ClickToolButton`（ツールバーのボタン）、`Play.Drag` / `Play.Click`（マップ上のドラッグとクリック）、`Play.ClickUi`（画面の部品のクリック）。ゲームが実マウスに対して呼ぶのと同じ入り口を呼び、カメラとマウス位置をセルに合わせるので、Mod のパッチも本物と同じ経路で動く。キー入力、ホイール、ホバー表示、`Input` を直接読むものは対象外。後始末は `Play.ClearTool()`。一覧は `protocol.md` の「Playing the player's input」。HTTP からは `/input/*`、`/ui/*`。
 - **状態を自分で作る**: `Arrange.Build` / `SpawnDuplicant` / `SpawnElement` / `SetElement`、`Find.*` で、手作りのセーブに頼らずに場面を作れる（ハーネスの DLL の参照が必要）。一覧は `protocol.md` の「Arranging game state」。
 
 Mod 側の `CLAUDE.md` には次のように書いておくとエージェントが使える:

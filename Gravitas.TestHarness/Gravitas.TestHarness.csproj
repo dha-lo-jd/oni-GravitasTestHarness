@@ -48,6 +48,14 @@
             <HintPath>$(GameManagedPath)\UnityEngine.ScreenCaptureModule.dll</HintPath>
             <Private>false</Private>
         </Reference>
+        <Reference Include="UnityEngine.UI">
+            <HintPath>$(GameManagedPath)\UnityEngine.UI.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
+        <Reference Include="UnityEngine.UIModule">
+            <HintPath>$(GameManagedPath)\UnityEngine.UIModule.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
         <Reference Include="UnityEngine.ImageConversionModule">
             <HintPath>$(GameManagedPath)\UnityEngine.ImageConversionModule.dll</HintPath>
             <Private>false</Private>

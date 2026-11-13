@@ -3,7 +3,7 @@
 ONI 実機検証ハーネス。概要と使い方は `README.md`、API の正本は `protocol.md`。ここにはエージェント向けの注意だけを書く。
 
 ## 構成
-- `Gravitas.TestHarness/`: ハーネス Mod（C#）。`Http/`（サーバとエンドポイント）、`Core/`（時間制御・query・invoke・テストランナー）、`Api/`（Mod 側が使う公開 API: `Check`/`Wait`、状態を作る `Arrange`/`Find`）、`Patches/`（Harmony）、`SelfTests.cs`。
+- `Gravitas.TestHarness/`: ハーネス Mod（C#）。`Http/`（サーバとエンドポイント）、`Core/`（時間制御・query・invoke・テストランナー）、`Api/`（Mod 側が使う公開 API: `Check`/`Wait`、状態を作る `Arrange`/`Find`、プレイヤーの操作を再現する `Play`）、`Patches/`（Harmony）、`SelfTests.cs`。
 - `Gravitas.TestProbe/`: Python の probe。`probe.py`（サイクル実行）、`mods_json.py`（mods.json 確認・修復）、`mcp_server.py`（probe の MCP ラッパー。stdout は JSON-RPC 専用なので print しない）。
 - 仕様書は repo 外: `F:/_System/Download/ONI 実機検証ハーネス 仕様(初版).md`（マイルストーン M1–M7。M1–M7 完了）。
 
@@ -19,7 +19,7 @@ ONI 実機検証ハーネス。概要と使い方は `README.md`、API の正本
 - `mods.json` で Mod が有効かどうかは `enabledForDlc`（アクティブな DLC の ID を含むか）で決まる。`enabled` は古い互換項目で、終了時に ONI が書き換え、ゲームは見ない。`staticID` は一意ではない（Workshop 版と開発版が同じ ID を持つ）。同名のアセンブリは Mono が 1 つしか読み込まないので、Workshop 版を有効にしたまま開発版をテストしても開発版は動かない。
 - probe は実行前の `mods.json` を保存して（メモリと `mods.json.probe-pending`）、終了後に書き戻す。probe が死んだ・`--keep` のあとは、次の `run` が `stale-mods-json` で止まるので `probe.py restore-mods`（または `--discard`）。恒久的な構成を変えるときだけ `python mods_json.py fix --mods-dir <mods> --id <ID> --exclusive` を使う（ゲーム停止中のみ）。
 - 新しい Mod の DLL を初めて置くときは、ゲームがそれを認識して `mods.json` に登録する**前**に `mods.json` を書き換えてはいけない（未認識の Mod のエントリがあると起動中にクラッシュする）。順序は DLL 配置 → `probe.py run --project <Mod repo> --setup`（`mods.json` に触れずに起動・登録待ち・終了）→ 通常の probe。通常の `run` はエントリを追加できない（`README.md`「初回セットアップの順序」）。
-- ONI にはグローバルな `Action` enum がある。デリゲートは必ず `System.Action`、時刻は `System.DateTime`。
+- ONI にはグローバルな `Action` enum がある。デリゲートは必ず `System.Action`、時刻は `System.DateTime`。同様に `Sim`、`Player`、`EventSystem`（UnityEngine.EventSystems のものとは別）もゲーム側にある。ハーネスの入力再現クラスを `Play` と呼ぶのはこのため。
 - `UserMod2.OnLoad` の基底がすでに Harmony の `PatchAll` を実行する。もう一度呼ぶとパッチが二重に当たる。
 - ゲームのメインスレッド以外から Unity API に触れない。HTTP ハンドラは `MainThreadDispatcher` 経由でメインスレッドで動く。待つ必要がある応答は `Pending` を返す。
 - ゲームのコードを調べるときは `ilspycmd` で `Assembly-CSharp.dll` を逆コンパイルする。private なメンバーは `Reflect` 経由（`GenericGameSettings.disableGameOver` など）。

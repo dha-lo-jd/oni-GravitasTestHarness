@@ -54,11 +54,15 @@ def load_config(project=None):
     cfg["saves_dirs"] = [REPO / "saves"]
     cfg["project_build"] = []
     cfg["project_dir"] = None
-    if project:
+    cfg_set = set()
+    projects = [project] if isinstance(project, str) else list(project or [])
+    for index, one in enumerate(projects):
         # Project file of the mod under test (conventionally <mod repo>/harness.json). Keys: build (commands run in
         # its folder), required_mods, exclusive (disable every other mod), save, saves_dir, port, build_harness (default true), runs_dir,
         # fail_on_log_errors / ignore_log_errors (defaults for the tests stage, see protocol.md).
-        ppath = Path(project).resolve()
+        # Several projects (--project A --project B) are run together: builds and required_mods are combined, the first
+        # project that names a save / port / runs_dir wins, exclusive is on if any project asks for it.
+        ppath = Path(one).resolve()
         if ppath.is_dir():
             ppath = ppath / "harness.json"
         if not ppath.exists():
@@ -68,14 +72,21 @@ def load_config(project=None):
         except ValueError as e:
             raise ProbeError("config", f"{ppath} is not valid JSON: {e}")
         pdir = ppath.parent
-        cfg["project_dir"] = pdir
-        cfg["project_build"] = proj.get("build", [])
+        if index == 0:
+            cfg["project_dir"] = pdir
+            cfg["runs_dir"] = (pdir / proj["runs_dir"]) if proj.get("runs_dir") else pdir / ".harness-runs"
+        # build commands run in the folder of the project that lists them
+        cfg["project_build"] += [(pdir, cmd) for cmd in proj.get("build", [])]
         if proj.get("build_harness", True) is False:
             cfg["build"] = []
-        for key in ("required_mods", "save", "port", "exclusive", "fail_on_log_errors", "ignore_log_errors"):
-            if key in proj:
+        if "required_mods" in proj:
+            cfg["required_mods"] = list(dict.fromkeys((cfg["required_mods"] if index else []) + proj["required_mods"]))
+        for key in ("save", "port", "fail_on_log_errors", "ignore_log_errors"):
+            if key in proj and key not in cfg_set:
                 cfg[key] = proj[key]
-        cfg["runs_dir"] = (pdir / proj["runs_dir"]) if proj.get("runs_dir") else pdir / ".harness-runs"
+                cfg_set.add(key)
+        if proj.get("exclusive"):
+            cfg["exclusive"] = True
         if proj.get("saves_dir"):
             cfg["saves_dirs"].insert(0, pdir / proj["saves_dir"])
     return cfg
@@ -109,7 +120,7 @@ def game_running():
 def build(cfg, run_dir):
     log = run_dir / "build.log"
     with log.open("w", encoding="utf-8") as f:
-        steps = [(c, HERE) for c in cfg["build"]] + [(c, cfg["project_dir"]) for c in cfg["project_build"]]
+        steps = [(c, HERE) for c in cfg["build"]] + [(c, d) for d, c in cfg["project_build"]]
         for cmd, cwd in steps:
             f.write(f"> ({cwd}) {cmd}\n")
             f.flush()
@@ -478,18 +489,54 @@ def setup_cycle(cfg):
     return result
 
 
+def summarize(out):
+    """A short plain-text report of a probe result (the JSON stays in <run_dir>/result.json)."""
+    lines = []
+    head = "OK" if out.get("ok") else "FAILED"
+    lines.append(f"{head}  stage={out.get('stage')}" + (f"  {out['error']}" if out.get("error") else ""))
+    tests = out.get("tests")
+    if tests:
+        lines.append(f"tests: {tests.get('passed')}/{tests.get('total')} passed, {tests.get('failed')} failed, "
+                     f"{tests.get('errors')} errors, {tests.get('skipped')} skipped ({tests.get('duration_ms')} ms)")
+        for r in tests.get("results", []):
+            if r.get("status") == "passed":
+                continue
+            lines.append(f"  {r.get('status')}: {r.get('id')}: {str(r.get('message') or '')[:300]}")
+            for l in (r.get("log_errors") or [])[:3]:
+                lines.append(f"    log: {str(l)[:200]}")
+        ids = [r.get("id") for r in tests.get("results", []) if r.get("status") == "passed"]
+        if ids:
+            lines.append("  passed: " + ", ".join(ids))
+    for step in out.get("steps", []) or []:
+        lines.append(f"step: {json.dumps(step, ensure_ascii=False)[:300]}")
+    exc = out.get("log_exceptions") or []
+    lines.append(f"log exceptions: {len(exc)}")
+    for e in exc[:5]:
+        lines.append("  " + " ".join(str(e)[:200].splitlines()))
+    if out.get("crash"):
+        lines.append(f"crash: {str(out['crash'])[:300]}")
+    if out.get("mods_json_restored") is False:
+        lines.append("WARNING: mods.json was not restored (run probe.py restore-mods)")
+    if out.get("run_dir"):
+        lines.append(f"details: {out['run_dir']}")
+    return os.linesep.join(lines)
+
+
 def main():
     sys.stdout.reconfigure(encoding="utf-8")  # the Windows console codec (cp932) cannot print everything the game logs
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("run")
-    r.add_argument("--project", help="harness.json of the mod under test (or its folder): its build commands, required_mods, "
-                   "save and runs location are used on top of the harness build")
+    r.add_argument("--project", action="append", help="harness.json of the mod under test (or its folder): its build commands, required_mods, "
+                   "save and runs location are used on top of the harness build. Give it several times to run mods together "
+                   "(builds and required_mods are combined; the first project's save and runs folder win)")
     r.add_argument("--setup", action="store_true",
                    help="first-time registration: build, start the game WITHOUT touching mods.json, wait until the mods are "
                         "registered in mods.json, then close it (no save, no tests). Run this before the first normal run "
                         "after placing a new mod's DLL")
     r.add_argument("--keep", action="store_true")
+    r.add_argument("--summary", action="store_true",
+                   help="print a short plain-text report instead of the full JSON (the JSON is still saved in <run dir>/result.json)")
     r.add_argument("--steps", help="JSON list of [method, path, body?] run in order once the save is playing")
     r.add_argument("--save", help="save to auto-load (file name in saves/, or a path); default: config 'save'")
     r.add_argument("--tests", nargs="?", const="{}", help="run in-game tests after the steps: a JSON body for /tests/run "
@@ -523,7 +570,10 @@ def main():
         out = {"ok": False, "stage": e.stage, "error": e.message}
     except (urllib.error.URLError, OSError) as e:
         out = {"ok": False, "stage": "http", "error": f"cannot reach the harness (is the game running?): {e}"}
-    print(json.dumps(out, indent=2, ensure_ascii=False))
+    if getattr(args, "summary", False):
+        print(summarize(out))
+    else:
+        print(json.dumps(out, indent=2, ensure_ascii=False))
     return 0 if out.get("ok") else 1
 
 
