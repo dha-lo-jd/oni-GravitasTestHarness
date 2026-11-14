@@ -156,6 +156,13 @@ internal static class SelfTests
     [HarnessTest(Name = "harness.sim_scroll", Tags = "selftest")]
     public static IEnumerator SimScroll()
     {
+        // The game ignores the wheel zoom while the OS cursor is outside its window (it reads Input.mousePosition, which the
+        // harness cannot set), so there is nothing to check then.
+        if (!CameraController.IsMouseOverGameWindow)
+        {
+            yield break;
+        }
+
         var camera = CameraController.Instance;
         var before = camera.targetOrthographicSize;
         Play.Scroll(-3);

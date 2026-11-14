@@ -9,6 +9,7 @@ namespace Gravitas.TestHarness;
 // Keyboard, mouse wheel and hover input of Play (see Play.cs for the mouse clicks and drags).
 public static partial class Play
 {
+    private static readonly MethodInfo GenerateFlagTable = typeof(KInputController).GetMethod("GenerateActionFlagTable", BindingFlags.Instance | BindingFlags.NonPublic);
     private static readonly FieldInfo KeyDefsField = typeof(KInputController).GetField("mKeyDefs", BindingFlags.Instance | BindingFlags.NonPublic);
 
     private static KInputController Controller
@@ -25,8 +26,16 @@ public static partial class Play
     private static List<KInputController.KeyDef> KeyDefs()
     {
         var controller = Controller;
-        // Bindings are turned into key definitions on the next input update after they change.
-        if (!(KeyDefsField?.GetValue(controller) is KInputController.KeyDef[] defs) || defs.Length == 0)
+        // Bindings are turned into key definitions on the next input update after they change. That update does not run
+        // while the game window is without focus (an automated run), so build them here when they are still missing.
+        var defs = KeyDefsField?.GetValue(controller) as KInputController.KeyDef[];
+        if (defs == null || defs.Length == 0)
+        {
+            GenerateFlagTable?.Invoke(controller, null);
+            defs = KeyDefsField?.GetValue(controller) as KInputController.KeyDef[];
+        }
+
+        if (defs == null || defs.Length == 0)
             throw new System.InvalidOperationException("the game has no key definitions yet (not in a running game?)");
         return defs.ToList();
     }
