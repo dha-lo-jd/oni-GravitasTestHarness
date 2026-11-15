@@ -27,6 +27,8 @@ python probe.py run --save "05 all research.sav"  # saves/ のセーブを自動
 python probe.py run --save X.sav --steps '[["POST","/time/advance",{"ticks":50}],["POST","/query",{"path":"GameClock.Instance.cycle"}]]'
 python probe.py run --save X.sav --tests          # ゲーム内テスト（[HarnessTest]）を全件実行
 python probe.py run --save X.sav --tests "heater" # id のパターン指定（JSON で names/tags/timeout_s も指定可）
+python probe.py run --save X.sav --soak           # 耐久観測: 10 サイクルか 30 分（実時間）の短い方まで進め、FPS・メモリ・ログ例外を記録
+python probe.py run --save X.sav --soak '{"max_cycles":30,"max_minutes":120,"speed":3,"chunk_seconds":60}'
 python probe.py run --keep                        # ゲームを残す（手動確認用）
 python probe.py http GET /status                  # 起動中のゲームの API を直接叩く
 python probe.py fix-mods                          # mods.json の確認・修復のみ
@@ -39,6 +41,15 @@ python probe.py run --project <Mod repo> --setup  # 新しい Mod の初回登�
 
 結果は標準出力に JSON で出る（`ok`、`stage`、`error`、`steps`、`tests`、`log_exceptions`、失敗時は `crash`）。終了コードは成功 0 / 失敗 1。
 成果物は `Gravitas.TestProbe/runs/<日時>/`（`result.json`、`Player.log`、`build.log`、`screenshots/`）に残り、直近 10 回分を保持する。
+
+## 耐久観測（soak、0.10.0〜）
+
+`--soak` は、セーブをロードしたあと（`--steps` / `--tests` の後）に、ゲームを `chunk_seconds`（既定 60 ゲーム秒）ずつ進めては `GET /metrics` を取り、`runs/<日時>/metrics.jsonl`（1 行 1 サンプル）に追記する。`max_cycles`（既定 10）と `max_minutes`（既定 30、実時間）の**先に来た方**で止まる。`speed` は 1〜3（既定 3）。
+
+- 1 行の項目: `real_s`、`game_s`、`cycle`、`fps`（そのチャンクの平均）、`working_set_mb`（プロセス全体。probe が tasklist で取得）/ `mono_heap_mb` / `unity_mb`、`duplicants`、`log_exceptions_new`（そのチャンクで Player.log に増えた例外行）。
+- `result.json` の `soak` に要約（停止理由 `stop_reason`、進めたサイクル、実時間と加速倍率 `game_s_per_real_s`、FPS の最小・p5・中央値・最大、メモリの開始・終了・最大・サイクルあたりの増加、新しい例外の数）。`--summary` でも 1 行で出る。
+- 停止理由: `max_cycles` / `max_minutes` / `game_over`。ゲームのプロセスが消えた（`stage: soak`、`game process exited`）、ハーネスが応答しない（hang かクラッシュかを判別して `error` に書く）ときは失敗として止まり、`crash` に Player.log の末尾が付く。
+- ログの例外は記録するだけで、`ok` は落とさない（例外があっても進行できているかを見るため）。
 
 ## 自分の Mod をテストする
 

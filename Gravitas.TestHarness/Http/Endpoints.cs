@@ -25,6 +25,9 @@ internal static class Endpoints
 
         server.Map("GET", "/status", _ => Status());
 
+        // Counters for soak runs: frame/realtime (the probe turns two samples into FPS), memory, game time.
+        server.Map("GET", "/metrics", _ => Metrics());
+
         // Body: {"path": "<absolute or relative path to a .sav>"}. Returns at once; poll /status for ready.
         server.Map("POST", "/load", body =>
         {
@@ -143,6 +146,30 @@ internal static class Endpoints
         var t = body?[name];
         if (t == null) throw new System.ArgumentException("'" + name + "' is required");
         return t;
+    }
+
+    private static object Metrics()
+    {
+        var clock = GameClock.Instance;
+        var speed = SpeedControlScreen.Instance;
+        int? dupes = null;
+        try { dupes = Components.LiveMinionIdentities.Count; }
+        catch (System.Exception) { }
+        return new
+        {
+            frame = Time.frameCount,
+            realtime = Time.realtimeSinceStartup,
+            time_scale = Time.timeScale,
+            screen = GameState.Screen(),
+            paused = speed != null ? speed.IsPaused : (bool?)null,
+            speed = speed != null ? speed.GetSpeed() + 1 : (int?)null,
+            game_over = GameFlowManager.Instance != null ? GameFlowManager.Instance.IsGameOver() : (bool?)null,
+            cycle = clock != null ? clock.GetCycle() : (int?)null,
+            time = clock != null ? clock.GetTime() : (float?)null,
+            duplicants = dupes,
+            mono_heap_bytes = System.GC.GetTotalMemory(false),
+            unity_allocated_bytes = UnityEngine.Profiling.Profiler.GetTotalAllocatedMemoryLong(),
+        };
     }
 
     private static object Status()

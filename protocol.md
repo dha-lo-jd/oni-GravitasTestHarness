@@ -28,6 +28,7 @@ HTTP status: 200 ok, 404 unknown path, 405 wrong method, 500 handler exception.
 | `GET /ping` | – | `pong`, `frame`, `realtime`, `cycle` (null before a game is loaded) |
 | `GET /version` | – | `version`, `protocol`. The probe compares both with the source and fails on a mismatch (stale deployment) |
 | `GET /status` | – | see below |
+| `GET /metrics` | – | `frame`, `realtime` (the probe turns two samples into FPS), `time_scale`, `screen`, `paused`, `speed`, `game_over`, `cycle`, `time`, `duplicants`, `mono_heap_bytes`, `unity_allocated_bytes`. Added in 0.10.0 for soak runs. Process memory is not here (Mono returns 0 for `Process.WorkingSet64`); the probe reads it from Windows |
 | `POST /load` | `{"path": "<.sav>"}` | status. Returns at once; poll `/status` until `ready`. Main menu only |
 | `POST /time/pause` | – | status |
 | `POST /time/resume` | – | status |

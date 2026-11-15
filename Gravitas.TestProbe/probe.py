@@ -4,6 +4,7 @@
     python probe.py run --save "name.sav"   also auto-load a save from saves/ and wait until it is playing
     python probe.py run --save X.sav --steps '[["POST","/time/advance",{"ticks":50}],["POST","/query",{"path":"GameClock.Instance.GetCycle"}]]'
     python probe.py run --project ../../MyMod --tests   test another mod: its harness.json gives build/required_mods/save
+    python probe.py run --save X.sav --soak '{"max_cycles":10,"max_minutes":30}'   timed run with FPS/memory/exception sampling
     python probe.py run --keep    same, but leave the game running (for manual poking)
     python probe.py run --setup    first-time registration of a new mod: build -> launch (mods.json untouched) -> wait until
                                    ONI has registered the mods in mods.json -> close. Run once before the first normal run
@@ -189,7 +190,137 @@ def crash_info(player_log, game_dir, since):
     return info
 
 
-def run_cycle(cfg, keep=False, save=None, steps=None, tests=None):
+MB = 1024 * 1024
+
+
+def _mb(value):
+    return None if value is None else round(value / MB, 1)
+
+
+def process_memory_mb():
+    """Working set of OxygenNotIncluded.exe in MB, from tasklist (the game's Mono cannot report it); None if unavailable."""
+    try:
+        out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq OxygenNotIncluded.exe", "/FO", "CSV", "/NH"],
+                             capture_output=True, text=True, timeout=10).stdout
+        mem = out.strip().splitlines()[0].strip('"').split('","')[4]  # e.g. 3,412,332 K (locale separators vary)
+        return round(int(re.sub(r"\D", "", mem)) / 1024, 1)
+    except (IndexError, ValueError, OSError, subprocess.SubprocessError):
+        return None
+
+
+def _count_new_exceptions(player_log, offset):
+    """Exception-looking lines appended to Player.log since byte `offset`: (count, new offset)."""
+    try:
+        with open(player_log, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            if size < offset:  # log was rotated / truncated
+                offset = 0
+            f.seek(offset)
+            text = f.read().decode("utf-8", errors="replace")
+    except OSError:
+        return 0, offset
+    count = sum(1 for line in text.splitlines()
+                if EXC_START_RE.search(line) and not STACK_RE.match(line) and "Thread was being aborted" not in line)
+    return count, size
+
+
+def soak_stage(cfg, run_dir, opts, player_log, result):
+    """Run the loaded save forward in chunks, sampling /metrics after each chunk into <run_dir>/metrics.jsonl.
+
+    opts: max_cycles (10), max_minutes (30; real time; whichever limit is hit first ends the batch), speed (3),
+    chunk_seconds (60 game seconds per sample). Returns a summary dict. A dead game or an unresponsive harness raises ProbeError.
+    """
+    max_cycles = float(opts.get("max_cycles", 10))
+    max_minutes = float(opts.get("max_minutes", 30))
+    speed = int(opts.get("speed", 3))
+    chunk = float(opts.get("chunk_seconds", 60))
+    target_game_s = max_cycles * 600.0
+    advance_timeout_s = max(120.0, chunk * 20)  # real seconds allowed for one chunk (1x is 1 game s per real s)
+
+    def metrics():
+        reply = http(cfg, "GET", "/metrics", timeout=15)
+        if not reply.get("ok"):
+            raise ProbeError("soak", f"/metrics failed: {reply.get('error', {}).get('message')}")
+        return reply["data"]
+
+    rows_path = run_dir / "metrics.jsonl"
+    rows = []
+    m = metrics()
+    t0_game, t0_real = m["time"], time.time()
+    log_offset = player_log.stat().st_size if player_log.exists() else 0
+    new_exceptions = 0
+    stop_reason = None
+    start_ws = process_memory_mb()
+    summary = result["soak"] = {"options": {"max_cycles": max_cycles, "max_minutes": max_minutes, "speed": speed, "chunk_seconds": chunk},
+               "start": {"cycle": m["cycle"], "duplicants": m.get("duplicants"), "working_set_mb": start_ws}}
+
+    def finish(reason):
+        fps = sorted(r["fps"] for r in rows if r.get("fps") is not None)
+        ws = [r["working_set_mb"] for r in rows if r.get("working_set_mb") is not None]
+        elapsed_game = (rows[-1]["game_s"] if rows else 0.0)
+        summary.update(
+            stop_reason=reason, chunks=len(rows), game_seconds=round(elapsed_game, 1),
+            cycles_advanced=round(elapsed_game / 600.0, 2), real_seconds=round(time.time() - t0_real, 1),
+            new_log_exceptions=new_exceptions,
+            end={"cycle": rows[-1]["cycle"] if rows else m["cycle"], "duplicants": rows[-1].get("duplicants") if rows else None,
+                 "working_set_mb": ws[-1] if ws else None})
+        if fps:
+            summary["fps"] = {"min": fps[0], "p5": fps[max(0, int(len(fps) * 0.05) - 0)], "median": fps[len(fps) // 2], "max": fps[-1]}
+        if ws:
+            summary["working_set_mb_max"] = max(ws)
+            if elapsed_game > 0:
+                summary["working_set_growth_mb_per_cycle"] = round((ws[-1] - (start_ws if start_ws is not None else ws[0])) / (elapsed_game / 600.0), 1)
+        if rows:
+            summary["game_s_per_real_s"] = round(elapsed_game / max(1e-6, rows[-1]["real_s"]), 2)
+        return summary
+
+    with rows_path.open("w", encoding="utf-8") as out:
+        while True:
+            elapsed_game = m["time"] - t0_game
+            if m.get("game_over"):
+                stop_reason = "game_over"
+            elif elapsed_game >= target_game_s - 0.5:
+                stop_reason = "max_cycles"
+            elif time.time() - t0_real >= max_minutes * 60:
+                stop_reason = "max_minutes"
+            if stop_reason:
+                return finish(stop_reason)
+            if not game_running():
+                finish("game_exited")
+                raise ProbeError("soak", f"game process exited during the soak at cycle {m['cycle']} "
+                                         f"(after {len(rows)} chunks, {summary.get('game_seconds')} game s); see Player.log / crash")
+            step = min(chunk, target_game_s - elapsed_game)
+            before = m
+            started = time.time()
+            try:
+                reply = http(cfg, "POST", "/time/advance", {"seconds": step, "speed": speed, "timeout_s": advance_timeout_s},
+                             timeout=advance_timeout_s + 30)
+                if not reply.get("ok"):
+                    raise ProbeError("soak", f"/time/advance failed: {reply.get('error', {}).get('message')}")
+                m = metrics()
+            except (urllib.error.URLError, OSError, ValueError) as e:
+                finish("harness_unresponsive")
+                alive = game_running()
+                raise ProbeError("soak", f"harness did not answer ({type(e).__name__}: {e}); game process "
+                                         f"{'still running (hang?)' if alive else 'exited (crash?)'} at cycle {before['cycle']}")
+            real_dt = m["realtime"] - before["realtime"]
+            frames = m["frame"] - before["frame"]
+            n, log_offset = _count_new_exceptions(player_log, log_offset)
+            new_exceptions += n
+            row = {"t": time.strftime("%H:%M:%S"), "real_s": round(time.time() - t0_real, 1),
+                   "game_s": round(m["time"] - t0_game, 1), "cycle": m["cycle"], "time_in_cycle": round(m["time"] % 600.0, 1),
+                   "chunk_real_s": round(time.time() - started, 2),
+                   "fps": round(frames / real_dt, 1) if real_dt > 0.01 else None,
+                   "working_set_mb": process_memory_mb(),
+                   "mono_heap_mb": _mb(m.get("mono_heap_bytes")), "unity_mb": _mb(m.get("unity_allocated_bytes")),
+                   "duplicants": m.get("duplicants"), "log_exceptions_new": n}
+            rows.append(row)
+            out.write(json.dumps(row) + "\n")
+            out.flush()
+
+
+def run_cycle(cfg, keep=False, save=None, steps=None, tests=None, soak=None):
     run_dir = cfg["runs_dir"] / time.strftime("%Y%m%d-%H%M%S")
     run_dir.mkdir(parents=True)
     result = {"ok": False, "run_dir": str(run_dir), "stage": "start"}
@@ -324,6 +455,12 @@ def run_cycle(cfg, keep=False, save=None, steps=None, tests=None):
             if data["failed"] or data["errors"]:
                 bad = [f"{r['id']}: {r.get('message')}" for r in data["results"] if r["status"] in ("failed", "error", "timeout")]
                 raise ProbeError("tests", f"{data['failed']} failed, {data['errors']} errors: " + "; ".join(bad))
+
+        if soak is not None:
+            if not save_path:
+                raise ProbeError("soak", "--soak needs a save (--save or 'save' in harness.json)")
+            result["stage"] = "soak"
+            soak_stage(cfg, run_dir, soak, player_log, result)
 
         if keep:
             result.update(ok=True, stage="done", note="game left running (--keep)")
@@ -509,6 +646,12 @@ def summarize(out):
             lines.append("  passed: " + ", ".join(ids))
     for step in out.get("steps", []) or []:
         lines.append(f"step: {json.dumps(step, ensure_ascii=False)[:300]}")
+    sk = out.get("soak")
+    if sk:
+        lines.append(f"soak: {sk.get('stop_reason')} after {sk.get('cycles_advanced')} cycles / {sk.get('real_seconds')} s real "
+                     f"({sk.get('game_s_per_real_s')}x), fps {sk.get('fps')}, mem {sk.get('start', {}).get('working_set_mb')} -> "
+                     f"{sk.get('end', {}).get('working_set_mb')} MB (max {sk.get('working_set_mb_max')}, "
+                     f"{sk.get('working_set_growth_mb_per_cycle')} MB/cycle), new log exceptions {sk.get('new_log_exceptions')}")
     exc = out.get("log_exceptions") or []
     lines.append(f"log exceptions: {len(exc)}")
     for e in exc[:5]:
@@ -539,6 +682,9 @@ def main():
                    help="print a short plain-text report instead of the full JSON (the JSON is still saved in <run dir>/result.json)")
     r.add_argument("--steps", help="JSON list of [method, path, body?] run in order once the save is playing")
     r.add_argument("--save", help="save to auto-load (file name in saves/, or a path); default: config 'save'")
+    r.add_argument("--soak", nargs="?", const="{}", help="after load (and steps/tests), run the save forward in chunks and sample FPS/memory/exceptions "
+                   "into <run dir>/metrics.jsonl. JSON options: max_cycles (10), max_minutes (30, real time; the shorter limit wins), "
+                   "speed (3), chunk_seconds (60). Needs a save")
     r.add_argument("--tests", nargs="?", const="{}", help="run in-game tests after the steps: a JSON body for /tests/run "
                    "(names/pattern/tags/timeout_s), a pattern string, or nothing for all non-manual tests")
     sub.add_parser("fix-mods")
@@ -557,7 +703,8 @@ def main():
             tests = None
             if args.tests is not None:
                 tests = json.loads(args.tests) if args.tests.lstrip().startswith("{") else {"pattern": args.tests}
-            out = run_cycle(cfg, args.keep, args.save, json.loads(args.steps) if args.steps else None, tests)
+            out = run_cycle(cfg, args.keep, args.save, json.loads(args.steps) if args.steps else None, tests,
+                            json.loads(args.soak) if args.soak is not None else None)
         elif args.cmd == "restore-mods":
             if game_running():
                 raise ProbeError("precheck", "OxygenNotIncluded.exe is running; close it first (ONI rewrites mods.json on exit)")
