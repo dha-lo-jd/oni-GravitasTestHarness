@@ -44,13 +44,26 @@ public static class TimeControl
         Speed().SetSpeed(speed - 1);
     }
 
+    /// <summary>
+    /// Debug speed: the game's "ridiculous speed" is the 3x button with <c>ultraSpeed</c> raised from 3 to 10; any factor works
+    /// (<c>Time.timeScale</c> becomes <paramref name="factor"/> while running, speed 3 is selected). Pass 3 to go back to normal 3x.
+    /// </summary>
+    public static void SetMultiplier(float factor)
+    {
+        if (!(factor >= 3f) || factor > 100f) throw new ArgumentException("multiplier must be between 3 and 100");
+        var sp = Speed();
+        sp.ultraSpeed = factor;
+        sp.SetSpeed(2);
+    }
+
     /// <summary>Runs the game for <paramref name="seconds"/> game seconds, then pauses and completes the result.</summary>
-    public static Pending Advance(float seconds, int? speed, int timeoutMs)
+    public static Pending Advance(float seconds, int? speed, int timeoutMs, float? multiplier = null)
     {
         var sp = Speed();
         if (_active != null) throw new InvalidOperationException("An advance is already in progress");
         if (!(seconds > 0f)) throw new ArgumentException("amount to advance must be > 0");
         if (speed.HasValue) SetSpeed(speed.Value);
+        if (multiplier.HasValue) SetMultiplier(multiplier.Value);
 
         _start = GameClock.Instance.GetTime();
         _target = _start + seconds;

@@ -29,11 +29,12 @@ HTTP status: 200 ok, 404 unknown path, 405 wrong method, 500 handler exception.
 | `GET /version` | – | `version`, `protocol`. The probe compares both with the source and fails on a mismatch (stale deployment) |
 | `GET /status` | – | see below |
 | `GET /metrics` | – | `frame`, `realtime` (the probe turns two samples into FPS), `time_scale`, `screen`, `paused`, `speed`, `game_over`, `cycle`, `time`, `duplicants`, `mono_heap_bytes`, `unity_allocated_bytes`. Added in 0.10.0 for soak runs. Process memory is not here (Mono returns 0 for `Process.WorkingSet64`); the probe reads it from Windows |
+| `GET /snapshot` | – | `cycle`, `time`, `grid_mass`, `grid_mean_temperature` (mass-weighted), `grid_mass_by_element` (top 40), `duplicant_count`, `duplicants[]` (`name`, `cell`, `calories`, `health`, `stress`, `breath`), `pickupable_count`, `pickupable_mass`. For comparing runs at different speeds (0.11.0) |
 | `POST /load` | `{"path": "<.sav>"}` | status. Returns at once; poll `/status` until `ready`. Main menu only |
 | `POST /time/pause` | – | status |
 | `POST /time/resume` | – | status |
-| `POST /time/speed` | `{"speed": 1..3}` | status (does not change paused state) |
-| `POST /time/advance` | one of `{"ticks":N}` `{"seconds":S}` `{"cycles":C}`; optional `"speed":1..3`, `"timeout_s"` (default 120) | `requested_seconds`, `elapsed_seconds`, `elapsed_ticks`, `cycle`, `time_in_cycle`, `time`. Replies after the game has run that long and is paused again |
+| `POST /time/speed` | `{"speed": 1..3}` or `{"multiplier": 3..100}` | status (does not change paused state). `multiplier` is the game's debug "ridiculous speed" (the 3x button with `SpeedControlScreen.ultraSpeed` raised, `Time.timeScale` = factor; 10 is the game's own); `speed` 3 goes back to plain 3x only after `multiplier: 3` |
+| `POST /time/advance` | one of `{"ticks":N}` `{"seconds":S}` `{"cycles":C}`; optional `"speed":1..3` or `"multiplier":3..100`, `"timeout_s"` (default 120) | `requested_seconds`, `elapsed_seconds`, `elapsed_ticks`, `cycle`, `time_in_cycle`, `time`. Replies after the game has run that long and is paused again |
 | `POST /query` | see below | see below |
 | `POST /screenshot` | `{"name": "optional"}` | `path`, `width`, `height`, `bytes`. PNG of the game view, taken at the end of the next frame, written to `-harness-out` |
 | `GET /tests` | – | `count`, `tests[]` (`id`, `tags`, `requires_game`, `timeout_s`, `invalid`) |

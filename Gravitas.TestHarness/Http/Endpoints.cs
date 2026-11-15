@@ -28,6 +28,9 @@ internal static class Endpoints
         // Counters for soak runs: frame/realtime (the probe turns two samples into FPS), memory, game time.
         server.Map("GET", "/metrics", _ => Metrics());
 
+        // Colony picture for comparing runs (grid mass / temperature, items, duplicant vitals). See Core/Snapshot.cs.
+        server.Map("GET", "/snapshot", _ => Snapshot.Take());
+
         // Body: {"path": "<absolute or relative path to a .sav>"}. Returns at once; poll /status for ready.
         server.Map("POST", "/load", body =>
         {
@@ -39,7 +42,8 @@ internal static class Endpoints
         server.Map("POST", "/time/resume", _ => { TimeControl.Resume(); return Status(); });
         server.Map("POST", "/time/speed", body =>
         {
-            TimeControl.SetSpeed((int)Require(body, "speed"));
+            if (body?["multiplier"] != null) TimeControl.SetMultiplier((float)body["multiplier"]);
+            else TimeControl.SetSpeed((int)Require(body, "speed"));
             return Status();
         });
 
@@ -53,7 +57,8 @@ internal static class Endpoints
             else if (body?["cycles"] != null) seconds = (float)body["cycles"] * TimeControl.SecondsPerCycle;
             else throw new System.ArgumentException("one of ticks, seconds, cycles is required");
             var timeout = body["timeout_s"] != null ? (int)((float)body["timeout_s"] * 1000) : 120000;
-            return TimeControl.Advance(seconds, body["speed"] != null ? (int)body["speed"] : (int?)null, timeout);
+            return TimeControl.Advance(seconds, body["speed"] != null ? (int)body["speed"] : (int?)null, timeout,
+                body["multiplier"] != null ? (float)body["multiplier"] : (float?)null);
         });
 
         server.Map("POST", "/query", Query.Run);

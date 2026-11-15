@@ -49,7 +49,17 @@ python probe.py run --project <Mod repo> --setup  # 新しい Mod の初回登�
 - 1 行の項目: `real_s`、`game_s`、`cycle`、`fps`（そのチャンクの平均）、`working_set_mb`（プロセス全体。probe が tasklist で取得）/ `mono_heap_mb` / `unity_mb`、`duplicants`、`log_exceptions_new`（そのチャンクで Player.log に増えた例外行）。
 - `result.json` の `soak` に要約（停止理由 `stop_reason`、進めたサイクル、実時間と加速倍率 `game_s_per_real_s`、FPS の最小・p5・中央値・最大、メモリの開始・終了・最大・サイクルあたりの増加、新しい例外の数）。`--summary` でも 1 行で出る。
 - 停止理由: `max_cycles` / `max_minutes` / `game_over`。ゲームのプロセスが消えた（`stage: soak`、`game process exited`）、ハーネスが応答しない（hang かクラッシュかを判別して `error` に書く）ときは失敗として止まり、`crash` に Player.log の末尾が付く。
+- `speed` の代わりに `"multiplier": 10`（ゲームのデバッグ加速。3〜100 の任意の倍率）、`"snapshots": true`（開始時と終了時に `/snapshot` を `snapshot_start.json` / `snapshot_end.json` に保存し、各行にグリッド質量・平均温度・拾える物の質量を足す）が使える。
 - ログの例外は記録するだけで、`ok` は落とさない（例外があっても進行できているかを見るため）。
+
+### 加速の比較（accel_matrix.py、0.11.0〜）
+
+```
+python accel_matrix.py --save "Live Human Testing.sav" --cycles 1     # 1x, 3x, 3x（再現性の確認）, 10x
+python accel_matrix.py --save X.sav --cycles 2 --variants '[["1x",{"speed":1}],["10x",{"multiplier":10}],["20x",{"multiplier":20}]]'
+```
+
+同じセーブを設定ごとに 1 回ずつ起動し直して進め、終了時の状態（グリッドの総質量・平均温度・元素別質量・複製人間のバイタル・拾える物）を先頭の設定と比べる。同じ設定を 2 回入れると、加速とは無関係なぶれの大きさが分かる。結果は `accel-matrix/<日時>/report.{json,txt}`。
 
 ## 自分の Mod をテストする
 

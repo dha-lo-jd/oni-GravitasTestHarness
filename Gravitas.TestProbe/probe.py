@@ -234,6 +234,8 @@ def soak_stage(cfg, run_dir, opts, player_log, result):
     max_cycles = float(opts.get("max_cycles", 10))
     max_minutes = float(opts.get("max_minutes", 30))
     speed = int(opts.get("speed", 3))
+    multiplier = opts.get("multiplier")  # debug speed factor (3..100); replaces "speed" when given
+    snapshots = bool(opts.get("snapshots", False))  # /snapshot at start and end (files) and a few of its numbers on every row
     chunk = float(opts.get("chunk_seconds", 60))
     target_game_s = max_cycles * 600.0
     advance_timeout_s = max(120.0, chunk * 20)  # real seconds allowed for one chunk (1x is 1 game s per real s)
@@ -244,18 +246,31 @@ def soak_stage(cfg, run_dir, opts, player_log, result):
             raise ProbeError("soak", f"/metrics failed: {reply.get('error', {}).get('message')}")
         return reply["data"]
 
+    def snapshot():
+        reply = http(cfg, "GET", "/snapshot", timeout=60)
+        if not reply.get("ok"):
+            raise ProbeError("soak", f"/snapshot failed: {reply.get('error', {}).get('message')}")
+        return reply["data"]
+
     rows_path = run_dir / "metrics.jsonl"
     rows = []
     m = metrics()
     t0_game, t0_real = m["time"], time.time()
+    if snapshots:
+        (run_dir / "snapshot_start.json").write_text(json.dumps(snapshot(), indent=1), encoding="utf-8")
     log_offset = player_log.stat().st_size if player_log.exists() else 0
     new_exceptions = 0
     stop_reason = None
     start_ws = process_memory_mb()
-    summary = result["soak"] = {"options": {"max_cycles": max_cycles, "max_minutes": max_minutes, "speed": speed, "chunk_seconds": chunk},
+    summary = result["soak"] = {"options": {"max_cycles": max_cycles, "max_minutes": max_minutes, "speed": speed, "multiplier": multiplier, "chunk_seconds": chunk, "snapshots": snapshots},
                "start": {"cycle": m["cycle"], "duplicants": m.get("duplicants"), "working_set_mb": start_ws}}
 
     def finish(reason):
+        if snapshots:
+            try:
+                (run_dir / "snapshot_end.json").write_text(json.dumps(snapshot(), indent=1), encoding="utf-8")
+            except (ProbeError, urllib.error.URLError, OSError, ValueError):
+                pass  # the game may be gone
         fps = sorted(r["fps"] for r in rows if r.get("fps") is not None)
         ws = [r["working_set_mb"] for r in rows if r.get("working_set_mb") is not None]
         elapsed_game = (rows[-1]["game_s"] if rows else 0.0)
@@ -294,8 +309,9 @@ def soak_stage(cfg, run_dir, opts, player_log, result):
             before = m
             started = time.time()
             try:
-                reply = http(cfg, "POST", "/time/advance", {"seconds": step, "speed": speed, "timeout_s": advance_timeout_s},
-                             timeout=advance_timeout_s + 30)
+                body = {"seconds": step, "timeout_s": advance_timeout_s}
+                body.update({"multiplier": multiplier} if multiplier else {"speed": speed})
+                reply = http(cfg, "POST", "/time/advance", body, timeout=advance_timeout_s + 30)
                 if not reply.get("ok"):
                     raise ProbeError("soak", f"/time/advance failed: {reply.get('error', {}).get('message')}")
                 m = metrics()
@@ -314,7 +330,11 @@ def soak_stage(cfg, run_dir, opts, player_log, result):
                    "fps": round(frames / real_dt, 1) if real_dt > 0.01 else None,
                    "working_set_mb": process_memory_mb(),
                    "mono_heap_mb": _mb(m.get("mono_heap_bytes")), "unity_mb": _mb(m.get("unity_allocated_bytes")),
+                   "advance_overshoot_s": round(reply["data"]["elapsed_seconds"] - step, 2),
                    "duplicants": m.get("duplicants"), "log_exceptions_new": n}
+            if snapshots:
+                snap = snapshot()
+                row.update(grid_mass=snap["grid_mass"], grid_temp=snap["grid_mean_temperature"], pickupable_mass=snap["pickupable_mass"])
             rows.append(row)
             out.write(json.dumps(row) + "\n")
             out.flush()
@@ -684,7 +704,7 @@ def main():
     r.add_argument("--save", help="save to auto-load (file name in saves/, or a path); default: config 'save'")
     r.add_argument("--soak", nargs="?", const="{}", help="after load (and steps/tests), run the save forward in chunks and sample FPS/memory/exceptions "
                    "into <run dir>/metrics.jsonl. JSON options: max_cycles (10), max_minutes (30, real time; the shorter limit wins), "
-                   "speed (3), chunk_seconds (60). Needs a save")
+                   "speed (3), multiplier (debug speed 3..100, instead of speed), snapshots (false), chunk_seconds (60). Needs a save")
     r.add_argument("--tests", nargs="?", const="{}", help="run in-game tests after the steps: a JSON body for /tests/run "
                    "(names/pattern/tags/timeout_s), a pattern string, or nothing for all non-manual tests")
     sub.add_parser("fix-mods")
