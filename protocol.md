@@ -19,6 +19,7 @@ HTTP status: 200 ok, 404 unknown path, 405 wrong method, 500 handler exception.
 | `-harness-port N` | HTTP port (env fallback `GRAVITAS_HARNESS_PORT`) |
 | `-harness-load PATH` | Save to load automatically once the main menu appears (env fallback `GRAVITAS_HARNESS_LOAD`) |
 | `-harness-out DIR` | Directory for screenshots (env fallback `GRAVITAS_HARNESS_OUT`). The probe passes `runs/<timestamp>/screenshots` |
+| `-harness-mods ID,ID` | Static ids of the mods under test (env fallback `GRAVITAS_HARNESS_MODS`), e.g. `PlantCensus.Local`. The probe passes the project's `required_mods`. The `conformance` tests run against these (see README) |
 | `-harness-allow-gameover` | Keep the game-over check. Off by default: a colony without duplicants would show the game-over screen, which pauses the game |
 
 ## Endpoints

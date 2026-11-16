@@ -112,6 +112,12 @@ def http(cfg, method, path, body=None, timeout=10):
         return json.loads(e.read().decode("utf-8"))
 
 
+def target_mods_args(cfg):
+    """The mods under test, for the harness's conformance tests (the harness itself is not one)."""
+    ids = [m for m in cfg["required_mods"] if m != mods_json.HARNESS_ID]
+    return ["-harness-mods", ",".join(ids)] if ids else []
+
+
 def game_running():
     out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq OxygenNotIncluded.exe", "/NH"],
                          capture_output=True, text=True).stdout
@@ -392,7 +398,7 @@ def run_cycle(cfg, keep=False, save=None, steps=None, tests=None, soak=None):
                 raise ProbeError("launch", f"save not found: {save_path}")
         extra = ["-harness-load", str(save_path)] if save_path else []
         subprocess.Popen([str(steam), "-applaunch", str(cfg["app_id"]), *cfg["launch_args"],
-                          "-harness-port", str(cfg["port"]),
+                          "-harness-port", str(cfg["port"]), *target_mods_args(cfg),
                           "-harness-out", str(run_dir / "screenshots"), *extra],
                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         started = time.time()
@@ -570,7 +576,7 @@ def setup_cycle(cfg):
             raise ProbeError("launch", f"steam_exe not found: {steam}")
         launched = True
         subprocess.Popen([str(steam), "-applaunch", str(cfg["app_id"]), *cfg["launch_args"],
-                          "-harness-port", str(cfg["port"]), "-harness-out", str(run_dir / "screenshots")],
+                          "-harness-port", str(cfg["port"]), *target_mods_args(cfg), "-harness-out", str(run_dir / "screenshots")],
                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         started = time.time()
         while not game_running():

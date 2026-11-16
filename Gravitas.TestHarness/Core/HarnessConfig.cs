@@ -50,6 +50,21 @@ internal static class HarnessConfig
         Array.IndexOf(Environment.GetCommandLineArgs(), "-harness-allow-gameover") >= 0
         || Environment.GetEnvironmentVariable("GRAVITAS_HARNESS_ALLOW_GAMEOVER") == "1";
 
+    /// <summary>
+    /// <c>-harness-mods ID,ID</c> / env GRAVITAS_HARNESS_MODS: static ids (as in mods.json, e.g. <c>PlantCensus.Local</c>) of the mods under
+    /// test. The probe passes the project's required_mods; the <c>conformance</c> tests run against these.
+    /// </summary>
+    public static System.Collections.Generic.HashSet<string> TargetMods
+    {
+        get
+        {
+            var s = Get("-harness-mods", "GRAVITAS_HARNESS_MODS");
+            return string.IsNullOrWhiteSpace(s)
+                ? new System.Collections.Generic.HashSet<string>()
+                : new System.Collections.Generic.HashSet<string>(s.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries));
+        }
+    }
+
     private static string Get(string arg, string env)
     {
         var args = Environment.GetCommandLineArgs();

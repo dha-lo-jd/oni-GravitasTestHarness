@@ -76,6 +76,15 @@ public static IEnumerator HeaterWarms()
 ```
 
 詳細（戻り値、`Wait`/`Check`、タグ、結果の種類）は `protocol.md` の「In-game tests」を参照。
+
+### 適合テスト（0.12.0〜、Mod 側のコード不要）
+タグ `conformance` で選ぶと、`required_mods` の Mod 全部に共通の検査が走る（`--tests '{"tags":["conformance"]}'`）。ゲームの読み込みだけで動き、セーブは要らない。
+
+- `conformance.mods_loaded`: Mod のアセンブリが読み込まれている。
+- `conformance.patches_applied_once`: Mod の Harmony の ID で、同じパッチが同じメソッドに二重に当たっていない（`PatchAll` の重ね呼び）。
+- `conformance.translations`: `translations/ja.po` と Mod の `STRINGS` 配下の `LocString` が、キーの過不足なく対応している。キーが付いていない（翻訳に登録されていない）`LocString` も検出する。ゲームが日本語のときは、訳が実際に適用されているかも確かめる。
+
+`harness.json` に `required_mods` と `build` だけ書けば、個別のテストがない Mod でも使える。
 検証対象の Mod を `probe.config.json` の `required_mods` に Mod ID で書くと、probe が `mods.json` でそれらを有効にしてから起動する。実行が終わってゲームが終了したら、probe は実行前の `mods.json` を**そのまま書き戻す**（ユーザーの有効 Mod 構成を変えない）。`--keep` のときは書き戻さない。
 
 **バックアップ**: probe は `mods.json` を変える前に、元の内容を `mods.json.probe-pending` にディスクへ保存し、書き戻したら消す。probe 自体が落ちた場合や `--keep` のあとは、これが残るので、次の `run` は `stage: stale-mods-json` で止まる。`probe.py restore-mods`（元に戻す）か `restore-mods --discard`（今のファイルを残して保存分を捨てる）で解消する。置き換える前の `mods.json` は `mods.json.probe-backup-*`（直近 5 件）に残る。
