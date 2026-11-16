@@ -42,6 +42,16 @@ python probe.py run --project <Mod repo> --setup  # 新しい Mod の初回登�
 結果は標準出力に JSON で出る（`ok`、`stage`、`error`、`steps`、`tests`、`log_exceptions`、失敗時は `crash`）。終了コードは成功 0 / 失敗 1。
 成果物は `Gravitas.TestProbe/runs/<日時>/`（`result.json`、`Player.log`、`build.log`、`screenshots/`）に残り、直近 10 回分を保持する。
 
+## 窓を背面に置く（`--window`、設定キー `window`）
+Steam の `-applaunch` は起動直後にゲームを前面に出す。人が別の作業をしているときは `--window background` を付ける（`probe.config.json` や `harness.json` の `"window": "background"` でも指定できる）。
+
+- `front`（既定）: 何もしない。
+- `background`: ゲームの窓を他のすべての窓の背面へ送り、直前にフォーカスがあった窓へフォーカスを戻す。ゲームは画面上で描画され続け、スクリーンショットも、入力の再現（`Play`）も通る。前面にいるのは起動直後の約 2 秒だけ（11/16 の実測。PlantCensus 47/47、PipeCensus 32/32 を背面のまま実行して合格）。
+- `offscreen`: 画面の外へ移す。スクリーンショットは撮れる。
+- `minimize`: **使わない**。最小化中はスクリーンショットが 144×1 の壊れた画像になる。
+
+起動の瞬間に入力していると、その数秒は取りこぼすことがある。実装は `Gravitas.TestProbe/winpos.py`。
+
 ## 耐久観測（soak、0.10.0〜）
 
 `--soak` は、セーブをロードしたあと（`--steps` / `--tests` の後）に、ゲームを `chunk_seconds`（既定 60 ゲーム秒）ずつ進めては `GET /metrics` を取り、`runs/<日時>/metrics.jsonl`（1 行 1 サンプル）に追記する。`max_cycles`（既定 10）と `max_minutes`（既定 30、実時間）の**先に来た方**で止まる。`speed` は 1〜3（既定 3）。

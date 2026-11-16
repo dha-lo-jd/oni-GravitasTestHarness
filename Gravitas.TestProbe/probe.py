@@ -28,6 +28,7 @@ import urllib.request
 from pathlib import Path
 
 import mods_json
+import winpos
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
@@ -43,7 +44,7 @@ class ProbeError(Exception):
 def load_config(project=None):
     cfg = {"port": 18080, "required_mods": [], "build": [], "launch_args": [],
            "ready_timeout_s": 240, "quit_timeout_s": 60, "launch_timeout_s": 90, "load_timeout_s": 240, "step_timeout_s": 300, "save": None, "player_log": None,
-           "steam_exe": "C:/Program Files (x86)/Steam/steam.exe", "app_id": 457140}
+           "steam_exe": "C:/Program Files (x86)/Steam/steam.exe", "app_id": 457140, "window": "front"}
     path = HERE / "probe.config.json"
     if not path.exists():
         raise ProbeError("config", f"{path} not found (copy probe.config.example.json)")
@@ -119,9 +120,9 @@ def target_mods_args(cfg):
 
 
 def game_running():
-    out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq OxygenNotIncluded.exe", "/NH"],
-                         capture_output=True, text=True).stdout
-    return "OxygenNotIncluded.exe" in out
+    # Bytes, decoded by hand: tasklist writes the console code page (cp932 here), and under python -X utf8 text=True would fail on it.
+    out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq OxygenNotIncluded.exe", "/NH"], capture_output=True).stdout or b""
+    return "OxygenNotIncluded.exe" in out.decode("cp932", "replace")
 
 
 def build(cfg, run_dir):
@@ -206,8 +207,8 @@ def _mb(value):
 def process_memory_mb():
     """Working set of OxygenNotIncluded.exe in MB, from tasklist (the game's Mono cannot report it); None if unavailable."""
     try:
-        out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq OxygenNotIncluded.exe", "/FO", "CSV", "/NH"],
-                             capture_output=True, text=True, timeout=10).stdout
+        out = (subprocess.run(["tasklist", "/FI", "IMAGENAME eq OxygenNotIncluded.exe", "/FO", "CSV", "/NH"],
+                              capture_output=True, timeout=10).stdout or b"").decode("cp932", "replace")
         mem = out.strip().splitlines()[0].strip('"').split('","')[4]  # e.g. 3,412,332 K (locale separators vary)
         return round(int(re.sub(r"\D", "", mem)) / 1024, 1)
     except (IndexError, ValueError, OSError, subprocess.SubprocessError):
@@ -397,6 +398,7 @@ def run_cycle(cfg, keep=False, save=None, steps=None, tests=None, soak=None):
             if not save_path.exists():
                 raise ProbeError("launch", f"save not found: {save_path}")
         extra = ["-harness-load", str(save_path)] if save_path else []
+        winpos.remember_foreground()
         subprocess.Popen([str(steam), "-applaunch", str(cfg["app_id"]), *cfg["launch_args"],
                           "-harness-port", str(cfg["port"]), *target_mods_args(cfg),
                           "-harness-out", str(run_dir / "screenshots"), *extra],
@@ -407,6 +409,7 @@ def run_cycle(cfg, keep=False, save=None, steps=None, tests=None, soak=None):
                 raise ProbeError("launch", f"OxygenNotIncluded.exe did not start within {cfg['launch_timeout_s']} s "
                                            "(Steam prompt? not logged in?)")
             time.sleep(0.5)
+        winpos.place(cfg["window"])
 
         result["stage"] = "wait-ready"
         ping = None
@@ -422,6 +425,7 @@ def run_cycle(cfg, keep=False, save=None, steps=None, tests=None, soak=None):
             if in_safe_mode(player_log):
                 result["safe_mode"] = True
                 raise ProbeError("safe-mode", SAFE_MODE_MESSAGE)
+            winpos.place(cfg["window"])
             time.sleep(1)
         else:
             raise ProbeError("wait-ready", f"no /ping response within {cfg['ready_timeout_s']} s")
@@ -449,10 +453,12 @@ def run_cycle(cfg, keep=False, save=None, steps=None, tests=None, soak=None):
                     status = None
                 if status and status["ready"]:
                     break
+                winpos.place(cfg["window"])
                 time.sleep(1)
             else:
                 raise ProbeError("load-save", f"save not ready within {cfg['load_timeout_s']} s (last status: {status})")
             result["load_after_s"] = round(time.time() - load_started, 1)
+            winpos.place(cfg["window"])
             result["status"] = status
 
         if steps:
@@ -575,6 +581,7 @@ def setup_cycle(cfg):
         if not steam.exists():
             raise ProbeError("launch", f"steam_exe not found: {steam}")
         launched = True
+        winpos.remember_foreground()
         subprocess.Popen([str(steam), "-applaunch", str(cfg["app_id"]), *cfg["launch_args"],
                           "-harness-port", str(cfg["port"]), *target_mods_args(cfg), "-harness-out", str(run_dir / "screenshots")],
                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -704,6 +711,8 @@ def main():
                         "registered in mods.json, then close it (no save, no tests). Run this before the first normal run "
                         "after placing a new mod's DLL")
     r.add_argument("--keep", action="store_true")
+    r.add_argument("--window", choices=winpos.MODES, help="where to keep the game window: front (default), background (behind other windows), "
+                   "minimize, offscreen. Also the config key 'window'")
     r.add_argument("--summary", action="store_true",
                    help="print a short plain-text report instead of the full JSON (the JSON is still saved in <run dir>/result.json)")
     r.add_argument("--steps", help="JSON list of [method, path, body?] run in order once the save is playing")
@@ -723,6 +732,8 @@ def main():
     args = ap.parse_args()
     try:
         cfg = load_config(getattr(args, "project", None))
+        if getattr(args, "window", None):
+            cfg["window"] = args.window
         if args.cmd == "run" and args.setup:
             out = setup_cycle(cfg)
         elif args.cmd == "run":
