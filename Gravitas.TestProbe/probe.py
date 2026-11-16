@@ -28,6 +28,7 @@ import urllib.request
 from pathlib import Path
 
 import mods_json
+import gamelock
 import winpos
 
 HERE = Path(__file__).resolve().parent
@@ -111,6 +112,11 @@ def http(cfg, method, path, body=None, timeout=10):
             return json.loads(r.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         return json.loads(e.read().decode("utf-8"))
+
+
+def game_lock():
+    """Only one run uses the game at a time (see gamelock.py). A busy game ends the run with stage "busy"."""
+    return gamelock.hold()
 
 
 def target_mods_args(cfg):
@@ -735,13 +741,15 @@ def main():
         if getattr(args, "window", None):
             cfg["window"] = args.window
         if args.cmd == "run" and args.setup:
-            out = setup_cycle(cfg)
+            with game_lock():
+                out = setup_cycle(cfg)
         elif args.cmd == "run":
             tests = None
             if args.tests is not None:
                 tests = json.loads(args.tests) if args.tests.lstrip().startswith("{") else {"pattern": args.tests}
-            out = run_cycle(cfg, args.keep, args.save, json.loads(args.steps) if args.steps else None, tests,
-                            json.loads(args.soak) if args.soak is not None else None)
+            with game_lock():
+                out = run_cycle(cfg, args.keep, args.save, json.loads(args.steps) if args.steps else None, tests,
+                                json.loads(args.soak) if args.soak is not None else None)
         elif args.cmd == "restore-mods":
             if game_running():
                 raise ProbeError("precheck", "OxygenNotIncluded.exe is running; close it first (ONI rewrites mods.json on exit)")
@@ -752,6 +760,8 @@ def main():
             out = http(cfg, args.method.upper(), args.path, json.loads(args.body) if args.body else None)
     except ProbeError as e:
         out = {"ok": False, "stage": e.stage, "error": e.message}
+    except gamelock.Busy as e:
+        out = {"ok": False, "stage": "busy", "error": str(e)}
     except (urllib.error.URLError, OSError) as e:
         out = {"ok": False, "stage": "http", "error": f"cannot reach the harness (is the game running?): {e}"}
     if getattr(args, "summary", False):

@@ -16,3 +16,5 @@ Gravitas.TestProbe/runs/
 Gravitas.TestHarness/Local.Build.props
 saves/auto_save/
 Gravitas.TestProbe/accel-matrix/
+.game.lock
+.game.yield

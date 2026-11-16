@@ -13,6 +13,7 @@ ONI 実機検証ハーネス。概要と使い方は `README.md`、API の正本
 - **実機を起動する操作（`probe.py run` など）は、ユーザーの本番環境の `mods.json` を書き換え、ゲームを起動する。** 依頼の範囲に含まれるか確かめ、不明なら先に聞く。
 - ハーネスの挙動を変えたら `TestHarnessMod.Version` と `mod_info.yaml` の version を上げる。プロトコルを壊したら `ProtocolVersion` も上げる。probe は両方をソースと突き合わせ、古いデプロイを検出する。
 - API を変えたら `protocol.md` を同時に更新する。マイルストーンの進捗は仕様書にも反映する。
+- **ゲームを使う実行は 1 つずつ**: probe の `run` は `.game.lock`（`gamelock.py`）を取る。取れないと `stage=busy` で終わる。無人の実行（`GRAVITAS_LOCK_BACKGROUND=1`、`tools/regress.py --background`）は待たない。人の実行は、無人の実行が持っていると、`.game.yield` を置いて 5 分まで待つ（無人の側は次の Mod の前に気づいて止まる）。
 - コミットは依頼されたときだけ。`git add -A` は使わず、ファイルを指定する（`Local.Build.props`、`probe.config.json`、`runs/` は追跡しない）。
 
 ## コードの落とし穴
