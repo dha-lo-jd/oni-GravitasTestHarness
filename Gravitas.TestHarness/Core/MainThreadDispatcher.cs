@@ -29,6 +29,7 @@ public sealed class MainThreadDispatcher : MonoBehaviour
 
     private void Update()
     {
+        TimeControl.KeepRunning();
         while (Queue.TryDequeue(out var call))
         {
             try { call.Result = call.Func(); }

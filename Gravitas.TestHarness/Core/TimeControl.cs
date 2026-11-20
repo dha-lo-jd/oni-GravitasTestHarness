@@ -74,6 +74,18 @@ public static class TimeControl
         return pending;
     }
 
+    /// <summary>
+    /// Called every frame (MainThreadDispatcher.Update, which runs even while the game is paused). While an advance is in progress the
+    /// game must stay unpaused: on U59 the game re-pauses itself once shortly after the first unpause following a save load, and
+    /// OnSimStep is not called while paused, so without this the advance would wait forever.
+    /// </summary>
+    internal static void KeepRunning()
+    {
+        if (_active == null) return;
+        var sp = SpeedControlScreen.Instance;
+        if (sp != null && sp.IsPaused) sp.Unpause(false);
+    }
+
     /// <summary>Called after every 33 ms sim step (GameClock.Sim33ms).</summary>
     internal static void OnSimStep()
     {
