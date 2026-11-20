@@ -92,6 +92,10 @@ def load_config(project=None):
             cfg["exclusive"] = True
         if proj.get("saves_dir"):
             cfg["saves_dirs"].insert(0, pdir / proj["saves_dir"])
+    # GRAVITAS_EXCLUSIVE=1: disable every mod that is not required, whatever the project file says (tools/regress.py sets it, so
+    # another own mod's tutorial or dialog cannot get in the way of the mod under test).
+    if os.environ.get("GRAVITAS_EXCLUSIVE") == "1":
+        cfg["exclusive"] = True
     return cfg
 
 
